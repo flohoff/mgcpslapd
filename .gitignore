@@ -1,0 +1,12 @@
+.*
+*.o
+*.o.*
+*.a
+*.s
+core*
+*.orig
+*.rej
+tsdecode
+getstream
+
+!.gitignore
