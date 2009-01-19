@@ -15,13 +15,22 @@ void socket_close(int sock) {
 	close(sock);
 }
 
-int socket_open(char *laddr, int port) {
+int socket_open(char *laddr, int port, int proto) {
 	struct sockaddr_in	lsin;
 	int			sock;
 
 	memset(&lsin, 0, sizeof(struct sockaddr_in));
 
-	sock=socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);
+	switch(proto) {
+		case(IPPROTO_UDP):
+			sock=socket(PF_INET, SOCK_DGRAM, IPPROTO_UDP);
+			break;
+		case(IPPROTO_TCP):
+			sock=socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+			break;
+		default:
+			return -1;
+	}
 
 	if (sock<0)
 		return sock;
@@ -77,7 +86,7 @@ int socket_join_multicast(int sock, char *addr) {
 	return setsockopt(sock, IPPROTO_IP, IP_ADD_MEMBERSHIP, &mreq, sizeof(mreq));
 }
 
-int socket_connect(int sock, char *addr, int port) {
+int socket_connect(int sock, char *addr, uint32_t saddr, int port) {
 	struct sockaddr_in	rsin;
 
 	memset(&rsin, 0, sizeof(struct sockaddr_in));
@@ -89,6 +98,9 @@ int socket_connect(int sock, char *addr, int port) {
 
 	if (addr)
 		inet_aton(addr, &rsin.sin_addr);
+
+	if (saddr)
+		rsin.sin_addr.s_addr=saddr;
 
 	return connect(sock, (struct sockaddr *) &rsin, sizeof(struct sockaddr_in));
 }

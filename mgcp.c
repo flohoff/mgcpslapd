@@ -163,7 +163,7 @@ static void mgcp_read(int fd, short event, void *arg) {
 
 int mgcp_init(void ) {
 
-	mgcpsock=socket_open(NULL, MGCP_PORT);
+	mgcpsock=socket_open(NULL, MGCP_PORT, IPPROTO_UDP);
 	socket_set_nonblock(mgcpsock);
 
 	event_set(&mgcpsockevent, mgcpsock,
