@@ -57,6 +57,10 @@ int socket_set_nonblock(int sock) {
 	return fcntl(sock, F_SETFL, flags | O_NONBLOCK);
 }
 
+int socket_listen(int sock, int backlog) {
+	return listen(sock, backlog);
+}
+
 int socket_set_ttl(int sock, int ttl) {
 	if (ttl)
 		return setsockopt(sock, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, sizeof(ttl));
