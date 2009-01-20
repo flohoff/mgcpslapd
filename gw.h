@@ -15,7 +15,13 @@ struct gateway_s {
 	char	name[128];
 
 	struct {
-		int status;
+		int	status;
+
+		struct {
+			time_t		recv;
+			struct timeval	recvtv;
+			struct event	recvtimer;
+		} hb;
 
 		struct {
 			struct in_addr	in;

@@ -115,9 +115,50 @@ static void slap_msg_zap(struct gateway_s *gw) {
 	gw->slap.valid-=len;
 }
 
+static void slap_recvhb_stop(struct gateway_s *gw) {
+	evtimer_del(&gw->slap.hb.recvtimer);
+}
+
+static void slap_connection_drop(struct gateway_s *gw) {
+	event_del(&gw->slap.conn.event);
+	socket_close(gw->slap.conn.socket);
+	gw->slap.status=SLAP_INACTIVE;
+
+	slap_recvhb_stop(gw);
+}
+
+/* Callback in case remote end heartbeat do not come in ... */
+static void slap_recvhb_fail(int fd, short event, void *arg) {
+	struct gateway_s	*gw=arg;
+	logwrite(LOG_ERROR, "SLAP remote heartbeat fail for %s", gw->name);
+	slap_connection_drop(gw);
+}
+
+static void slap_msg_recvhb(struct gateway_s *gw) {
+	ss7_v2_header_t		*hdr=(ss7_v2_header_t *) &gw->slap.readbuffer;
+
+	gw->slap.hb.recv=time(NULL);
+	evtimer_del(&gw->slap.hb.recvtimer);
+
+	gw->slap.hb.recvtv.tv_sec=SLAP_HB_TIME_NE*SLAP_HB_FAILCOUNT;
+	gw->slap.hb.recvtv.tv_usec=0;
+
+	evtimer_set(&gw->slap.hb.recvtimer, slap_recvhb_fail, gw);
+	evtimer_add(&gw->slap.hb.recvtimer, &gw->slap.hb.recvtv);
+}
+
 static void slap_msg_process(struct gateway_s *gw) {
+	ss7_v2_header_t		*hdr=(ss7_v2_header_t *) &gw->slap.readbuffer;
+
 	logwrite(LOG_DEBUG, "processing SLAP message for gw %s", gw->name);
 	dump_hex(LOG_DEBUG, "SLAPMSG", gw->slap.readbuffer, slap_msglen(gw));
+
+	switch(hdr->app_class) {
+		case(SLAP_AC_HEARTBEAT):
+			slap_msg_recvhb(gw);
+			break;
+	}
+
 	slap_msg_zap(gw);
 }
 
@@ -135,7 +176,8 @@ static void slap_read(struct gateway_s *gw, int fd) {
 		 * and clear state
 		 * Then we need to restart the connection timer
 		 */
-		logwrite(LOG_ERROR, "slap_read returned %d bytes for gw %s", len, gw->name);
+		logwrite(LOG_DEBUG, "SLAP Connection from %s/%s dropped", gw->name, inet_ntoa(gw->slap.addr.in));
+		slap_connection_drop(gw);
 	}
 
 	gw->slap.valid+=len;
