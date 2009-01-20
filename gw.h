@@ -22,6 +22,12 @@ struct gateway_s {
 			struct event	timer;
 			struct timeval	tv;
 		} addr;
+
+		struct {
+			int		socket;
+			struct event	event;
+			struct timeval	tv;
+		} conn;
 	} slap;
 };
 
