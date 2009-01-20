@@ -21,6 +21,9 @@ int slap_isactive(struct gateway_s *gw) {
 #define SLAP_CONNECT_TIMEOUT	3		/* SLAP connect timeout */
 #define SLAPCONN_FAIL_RETRY	6		/* Failure on connect retry timer */
 
+static void slap_connect(struct gateway_s *);
+
+
 static void slap_dns_callback(int result, char type, int count, int ttl, void *addresses, void *arg);
 
 static void slap_dns_resolve(int fd, short event, void *arg) {
@@ -37,13 +40,9 @@ static void slap_dns_retry(struct gateway_s *gw, int time) {
 	evtimer_add(&gw->slap.addr.timer, &gw->slap.addr.tv);
 }
 
-
-static void slap_connect(struct gateway_s *);
-static void slap_conn_init(struct gateway_s *);
-
 static void slap_conn_retry_conn(int fd, short event, void *arg) {
 	struct gateway_s	*gw=arg;
-	slap_conn_init(gw);
+	slap_connect(gw);
 }
 
 static void slap_conn_retry(struct gateway_s *gw, int time) {
@@ -89,13 +88,18 @@ static void slap_conn_established(int fd, short event, void *arg) {
 		   keep on trying on the same tcp session until it aborts
 		 */
 		socket_close(gw->slap.conn.socket);
-		slap_conn_init(gw);
+		slap_connect(gw);
 	}
 }
 
 /* Connect to the gateway and schedule a timeout or writeable event */
 static void slap_connect(struct gateway_s *gw) {
 	int	i;
+
+	logwrite(LOG_DEBUG, "Init connection called for gateway %s", gw->name);
+
+	gw->slap.conn.socket=socket_open(NULL, 0, IPPROTO_TCP);
+	socket_set_nonblock(gw->slap.conn.socket);
 
 	i=socket_connect(gw->slap.conn.socket, NULL, gw->slap.addr.in.s_addr, SLAP_PORT);
 
@@ -137,16 +141,6 @@ static void slap_connect(struct gateway_s *gw) {
 	}
 }
 
-/* Open a socket and start connecting */
-static void slap_conn_init(struct gateway_s *gw) {
-	logwrite(LOG_DEBUG, "Init connection called for gateway %s", gw->name);
-
-	gw->slap.conn.socket=socket_open(NULL, 0, IPPROTO_TCP);
-	socket_set_nonblock(gw->slap.conn.socket);
-
-	slap_connect(gw);
-}
-
 static void slap_dns_callback(int result, char type, int count,
 			int ttl, void *addresses, void *arg) {
 
@@ -170,7 +164,7 @@ static void slap_dns_callback(int result, char type, int count,
 			gw->slap.addr.in.s_addr=addr;
 
 			/* Start up a connection */
-			slap_conn_init(gw);
+			slap_connect(gw);
 		} else {
 			logwrite(LOG_ERROR, "slap connection up and address change for gateway %s", gw->name);
 		}
