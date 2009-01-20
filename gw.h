@@ -9,6 +9,8 @@
 
 #include <event.h>
 
+#include <stdint.h>
+
 struct gateway_s {
 	char	name[128];
 
@@ -28,6 +30,10 @@ struct gateway_s {
 			struct event	event;
 			struct timeval	tv;
 		} conn;
+
+#define SLAP_MAXMSG_SIZE	524
+		int	valid;
+		uint8_t	readbuffer[SLAP_MAXMSG_SIZE];
 	} slap;
 };
 
