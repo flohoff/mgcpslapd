@@ -33,10 +33,17 @@ void _logwrite(const char *function, int line, int level, const char *format, ..
 
 	strftime(timedate, sizeof(timedate), "%Y-%m-%d %H:%M:%S", tm);
 
-	printf("%s.%03d %s/%d %s\n",
-			timedate,
-			(int) tv.tv_usec/1000,
-			function,
-			line,
-			logbuffer);
+	if (function)
+		printf("%s.%03d %s/%d %s\n",
+				timedate,
+				(int) tv.tv_usec/1000,
+				function,
+				line,
+				logbuffer);
+	else
+		printf("%s.%03d %s\n",
+				timedate,
+				(int) tv.tv_usec/1000,
+				logbuffer);
+
 }
