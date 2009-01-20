@@ -18,6 +18,7 @@ int slap_isactive(struct gateway_s *gw) {
 #define DNS_REFRESH_TIME	300
 #define SLAP_PORT		5003
 
+#define SLAP_CONNECT_TIMEOUT	3		/* SLAP connect timeout */
 #define SLAPCONN_FAIL_RETRY	6		/* Failure on connect retry timer */
 
 static void slap_dns_callback(int result, char type, int count, int ttl, void *addresses, void *arg);
@@ -54,6 +55,14 @@ static void slap_conn_retry(struct gateway_s *gw, int time) {
 	evtimer_add(&gw->slap.conn.event, &gw->slap.conn.tv);
 }
 
+/* Callback only used while trying to build a connection - Either
+   gets a timeout after SLAP_CONNECT_TIMEOUT or a writeable socket
+   which means we most likely succeeded or failed in connect.
+   So on writeable we poll the socket with getsockopt and check
+   for errors. If we have an error (most likely "connection refused"
+   and the like we drop the socket and schedule a timer to try
+   reconnecting.
+*/
 static void slap_conn_established(int fd, short event, void *arg) {
 	struct gateway_s	*gw=arg;
 	int			error, rc;
@@ -72,6 +81,7 @@ static void slap_conn_established(int fd, short event, void *arg) {
 			   a bufferevent thingy ....
 			 */
 		} else {
+			socket_close(gw->slap.conn.socket);
 			slap_conn_retry(gw, SLAPCONN_FAIL_RETRY);
 		}
 	} else if (event == EV_TIMEOUT) {
@@ -82,8 +92,6 @@ static void slap_conn_established(int fd, short event, void *arg) {
 		slap_conn_init(gw);
 	}
 }
-
-#define SLAP_CONNECT_TIMEOUT	3
 
 /* Connect to the gateway and schedule a timeout or writeable event */
 static void slap_connect(struct gateway_s *gw) {
@@ -160,6 +168,8 @@ static void slap_dns_callback(int result, char type, int count,
 	if (addr != gw->slap.addr.in.s_addr) {
 		if (!slap_isactive(gw)) {
 			gw->slap.addr.in.s_addr=addr;
+
+			/* Start up a connection */
 			slap_conn_init(gw);
 		} else {
 			logwrite(LOG_ERROR, "slap connection up and address change for gateway %s", gw->name);
