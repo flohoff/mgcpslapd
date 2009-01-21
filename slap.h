@@ -3,12 +3,14 @@
 
 #include "gw.h"
 
-#define SLAP_MAXMSG_SIZE	524
-#define SLAP_MSGHDR_MINLEN	12
+#define SLAP_MSGHDR_LEN		12
 
 #define SLAP_HB_TIME_NE		15
 #define SLAP_HB_FAILCOUNT	3
 #define SLAP_HB_TIME_FE		15
+
+#define SLAP_MAGIC		0xdc
+#define SLAP_VERSION		0x01
 
 enum {
 	SLAP_INACTIVE = 0,
@@ -36,6 +38,13 @@ typedef struct {
 #define SLAP_AC_QUERYACK	0x06
 #define	SLAP_AC_EVENT		0x0b
 #define	SLAP_AC_REGISTER	0x0c
+
+#define DNS_FAIL_RETRY_TIME	60
+#define DNS_REFRESH_TIME	300
+#define SLAP_PORT		5003
+
+#define SLAP_CONNECT_TIMEOUT	3		/* SLAP connect timeout */
+#define SLAPCONN_FAIL_RETRY	6		/* Failure on connect retry timer */
 
 void slap_init(void );
 int slap_isactive(struct gateway_s *);

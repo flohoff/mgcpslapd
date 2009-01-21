@@ -11,6 +11,9 @@
 
 #include <stdint.h>
 
+//#define SLAP_MAXMSG_SIZE	524
+#define SLAP_BUFFER_SIZE	512
+
 struct gateway_s {
 	char	name[128];
 
@@ -21,6 +24,9 @@ struct gateway_s {
 			time_t		recv;
 			struct timeval	recvtv;
 			struct event	recvtimer;
+
+			struct timeval	sendtv;
+			struct event	sendtimer;
 		} hb;
 
 		struct {
@@ -37,9 +43,15 @@ struct gateway_s {
 			struct timeval	tv;
 		} conn;
 
-#define SLAP_MAXMSG_SIZE	524
-		int	valid;
-		uint8_t	readbuffer[SLAP_MAXMSG_SIZE];
+		struct {
+			int	valid;
+			uint8_t	buffer[SLAP_BUFFER_SIZE];
+		} read;
+
+		struct {
+			int	valid;
+			uint8_t	buffer[SLAP_BUFFER_SIZE];
+		} write;
 	} slap;
 };
 
