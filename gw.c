@@ -6,8 +6,18 @@
 #include "gw.h"
 #include "slap.h"
 #include "mgcp.h"
+#include "logging.h"
 
 GHashTable		*gwtable;
+
+int gw_create_ds1(struct gateway_s *gw, int slot, int ds1) {
+	if (gw->slot[slot].ds1[ds1])
+		return 1;
+
+	gw->slot[slot].ds1[ds1]=calloc(1, sizeof(struct ds1_s));
+
+	return 1;
+}
 
 struct gateway_s *gw_lookup(char *name) {
 	return g_hash_table_lookup(gwtable, name);
@@ -15,6 +25,8 @@ struct gateway_s *gw_lookup(char *name) {
 
 struct gateway_s *gw_create(char *name) {
 	struct gateway_s	*gw;
+
+	logwrite(LOG_INFO, "Created gateway with name %s", name);
 
 	gw=calloc(1, sizeof(struct gateway_s));
 

@@ -14,8 +14,32 @@
 //#define SLAP_MAXMSG_SIZE	524
 #define SLAP_BUFFER_SIZE	512
 
+#define MAX_DS0_PERDS1		32
+#define MAX_DS1_PERSLOT		3
+#define MAX_SLOT		14
+
+struct ds0_s {
+	uint8_t		status;
+	uint8_t		callid[32];
+	time_t		statechange;
+};
+
+struct ds1_s {
+	uint8_t		status;
+	uint8_t		numds0;
+	struct ds0_s	ds0[MAX_DS0_PERDS1];
+};
+
+struct slot_s {
+	uint8_t		status;
+	uint8_t		numds1;
+	struct ds1_s	*ds1[MAX_DS1_PERSLOT];
+};
+
 struct gateway_s {
-	char	name[128];
+	char		name[128];
+
+	struct slot_s	slot[MAX_SLOT];
 
 	struct {
 		int	status;
@@ -58,5 +82,6 @@ struct gateway_s {
 int gw_init(void );
 struct gateway_s *gw_lookup(char *);
 struct gateway_s *gw_lookup_or_create(char *);
+int gw_create_ds1(struct gateway_s *gw, int slot, int ds1);
 
 #endif
