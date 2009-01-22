@@ -111,10 +111,13 @@ static struct mgcppkt_s *mgcp_pkt_get(void ) {
 
 	if (!first) {
 		pkt=g_slice_new0(struct mgcppkt_s);
+
 		pkt->msg=g_string_sized_new(MAX_MSG_SIZE);
 		pkt->endpoint=g_string_sized_new(MAX_EP_SIZE);
 		pkt->body=g_string_sized_new(MAX_BODY_SIZE);
 		pkt->resultstr=g_string_sized_new(MAX_RESULTSTR_SIZE);
+
+		pkt->list.data=pkt;
 
 		logwrite(LOG_DEBUG, "returning newly allocated pkt %p", pkt);
 
@@ -123,7 +126,7 @@ static struct mgcppkt_s *mgcp_pkt_get(void ) {
 
 	pktfreelist=g_list_remove_link(pktfreelist, first);
 
-	logwrite(LOG_DEBUG, "returning pkt from list %p", first->data);
+	logwrite(LOG_DEBUG, "returning pkt from list %p %p", first->data, first);
 
 	return first->data;
 }
@@ -290,7 +293,14 @@ static void mgcp_pkt_send(struct mgcppkt_s *pkt) {
 
 	mgcp_pkt_send_pure(pkt);
 
-	mgcp_pkt_queue_add(pkt);
+	/*
+	 * In case of a command retransmit
+	 * In case of a reply start delete timer
+	 */
+	if (pkt->type == PKT_TYPE_COMMAND)
+		mgcp_pkt_queue_add(pkt);
+	else
+		mgcp_pkt_deltimer_start(pkt);
 }
 
 void mgcp_send_rsip_gw(struct gateway_s *gw, int restart, int delay) {
