@@ -18,10 +18,20 @@
 #define MAX_DS1_PERSLOT		3
 #define MAX_SLOT		14
 
+enum {
+	DS1_STATUS_UNKNOWN = 0,
+	DS1_STATUS_UP = 1,
+	DS1_STATUS_DOWN = 2
+};
+
+enum {
+	GW_STATUS_UNAVAIL = 0,
+	GW_STATUS_AVAIL = 1
+};
+
 struct ds0_s {
 	uint8_t		status;
 	uint8_t		callid[32];
-	time_t		statechange;
 };
 
 struct ds1_s {
@@ -38,8 +48,15 @@ struct slot_s {
 
 struct gateway_s {
 	char		name[128];
+	int		status;
 
 	struct slot_s	slot[MAX_SLOT];
+
+	struct {
+		struct {
+			struct sockaddr_in	sin;
+		} addr;
+	} mgcp;
 
 	struct {
 		int	status;
@@ -79,9 +96,22 @@ struct gateway_s {
 	} slap;
 };
 
+struct endpoint_s {
+	char			domain[64];
+	int			slot;
+	int			span;
+	int			chan;
+
+	struct gateway_s	*gw;
+};
+
 int gw_init(void );
 struct gateway_s *gw_lookup(char *);
 struct gateway_s *gw_lookup_or_create(char *);
-int gw_create_ds1(struct gateway_s *gw, int slot, int ds1);
+struct ds1_s *gw_ds1_get_or_create(struct gateway_s *gw, int slot, int ds1);
+void gw_set_status(struct gateway_s *gw, int status);
+void gw_ds1_set_status(struct gateway_s *gw, int slot, int span, int status);
+void gw_ds0_set_status(struct gateway_s *gw, int slot, int span, int chan, int status);
+void gw_slot_set_status(struct gateway_s *gw, int slot, int status);
 
 #endif

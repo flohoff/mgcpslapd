@@ -30,6 +30,12 @@ typedef struct {
 	uint32_t	location_id;
 } ss7_v2_header_t;
 
+typedef struct {
+	uint32_t	esig;
+	uint32_t	slot;
+	uint16_t	status;
+} status_chg_t;
+
 #define SLAP_AC_CALLCONTROL	0x01
 #define	SLAP_AC_HEARTBEAT	0x02
 #define SLAP_AC_CMDREQ		0x03
@@ -45,6 +51,14 @@ typedef struct {
 
 #define SLAP_CONNECT_TIMEOUT	3		/* SLAP connect timeout */
 #define SLAPCONN_FAIL_RETRY	6		/* Failure on connect retry timer */
+#define SLAP_ACTIVE_DELAY	3		/* Delay to send an MGCP RSIP after connected */
+
+#define SLAP_STATUS_CHANGE	0x7b
+#define SLAP_STARTUP_TEMP	0x7c
+#define SLAP_LINK_STATUS	0x73
+#define SLAP_DS0_STATUS		0x74
+#define SLAP_TOTAL_MDM_AVAIL	0x7a
+#define SLAP_DS0_BLOCKING	0x7f
 
 void slap_init(void );
 int slap_isactive(struct gateway_s *);

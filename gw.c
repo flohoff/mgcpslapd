@@ -10,13 +10,37 @@
 
 GHashTable		*gwtable;
 
-int gw_create_ds1(struct gateway_s *gw, int slot, int ds1) {
-	if (gw->slot[slot].ds1[ds1])
-		return 1;
+struct ds1_s *gw_ds1_get_or_create(struct gateway_s *gw, int slot, int ds1) {
+	if (!gw->slot[slot].ds1[ds1])
+		gw->slot[slot].ds1[ds1]=calloc(1, sizeof(struct ds1_s));
 
-	gw->slot[slot].ds1[ds1]=calloc(1, sizeof(struct ds1_s));
+	return gw->slot[slot].ds1[ds1];
+}
 
-	return 1;
+void gw_ds1_set_status(struct gateway_s *gw, int slot, int span, int status) {
+	struct ds1_s *ds1=gw_ds1_get_or_create(gw, slot, span);
+	ds1->status=status;
+}
+
+void gw_ds0_set_status(struct gateway_s *gw, int slot, int span, int chan, int status) {
+	struct ds1_s *ds1=gw_ds1_get_or_create(gw, slot, span);
+	ds1->ds0[chan].status=status;
+}
+
+void gw_slot_set_status(struct gateway_s *gw, int slot, int status) {
+	gw->slot[slot].status=status;
+}
+
+void gw_set_status(struct gateway_s *gw, int status) {
+	if (gw->status != GW_STATUS_AVAIL)
+		if (status == GW_STATUS_AVAIL)
+			mgcp_send_rsip_gw(gw, MGCP_RSIP_RESTART, 5);
+
+	if (gw->status == GW_STATUS_AVAIL)
+		if (status != GW_STATUS_AVAIL)
+			mgcp_send_rsip_gw(gw, MGCP_RSIP_FORCED, 0);
+
+	gw->status=status;
 }
 
 struct gateway_s *gw_lookup(char *name) {

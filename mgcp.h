@@ -1,4 +1,11 @@
 #include "gw.h"
 
+enum {
+	MGCP_RSIP_RESTART,
+	MGCP_RSIP_FORCED
+};
+
 int mgcp_init(void );
-int mgcp_init_gateway(struct gateway_s *gw);
+void mgcp_init_gateway(struct gateway_s *gw);
+void mgcp_send_rsip_span(struct gateway_s *gw, int slot, int span);
+void mgcp_send_rsip_gw(struct gateway_s *gw, int restart, int delay);

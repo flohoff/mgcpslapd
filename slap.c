@@ -1,6 +1,7 @@
 #include <event.h>
 #include <evdns.h>
 #include <string.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
 #include <sys/time.h>
@@ -13,6 +14,7 @@
 #include "logging.h"
 #include "socket.h"
 #include "util.h"
+#include "mgcp.h"
 
 static int		slapsock;
 static struct event	slapevent;
@@ -86,29 +88,38 @@ void slap_init_gateway(struct gateway_s *gw) {
 
 
 
+static int slap_msg_payload_len(ss7_v2_header_t *hdr) {
+	return hdr->payload_len;
+}
 
-
-static int slap_msglen(struct gateway_s *gw) {
-	ss7_v2_header_t		*ss7head=(ss7_v2_header_t *) &gw->slap.read.buffer;
-
-	return ss7head->payload_len+SLAP_MSGHDR_LEN;
+static int slap_msg_len(ss7_v2_header_t *hdr) {
+	return hdr->payload_len+SLAP_MSGHDR_LEN;
 }
 
 static int slap_msg_complete(struct gateway_s *gw) {
+	ss7_v2_header_t *hdr=(ss7_v2_header_t *) &gw->slap.read.buffer;
 	if (gw->slap.read.valid >= SLAP_MSGHDR_LEN) {
-		if (gw->slap.read.valid >= slap_msglen(gw))
+		if (gw->slap.read.valid >= slap_msg_len(hdr))
 			return 1;
 	}
 	return 0;
+}
+
+uint8_t *slap_msg_payloadptr(ss7_v2_header_t *hdr) {
+	hdr++;
+	return (uint8_t *) hdr;
 }
 
 /* Delete message from input buffer - move bytes to front and update
  * valid byte counter
  */
 static void slap_msg_zap(struct gateway_s *gw) {
-	int	len=slap_msglen(gw);
+	ss7_v2_header_t *hdr=(ss7_v2_header_t *) &gw->slap.read.buffer;
+	int		len=slap_msg_len(hdr);
+
 	if (len < gw->slap.read.valid)
 		memmove(gw->slap.read.buffer, gw->slap.read.buffer+len, gw->slap.read.valid-len);
+
 	gw->slap.read.valid-=len;
 }
 
@@ -116,14 +127,24 @@ static void slap_recvhb_stop(struct gateway_s *);
 static void slap_sendhb_stop(struct gateway_s *);
 
 static void slap_connection_drop(struct gateway_s *gw) {
+	int		i;
+
+	logwrite(LOG_ERROR, "Dropping SLAP connection for gateway %s", gw->name);
 
 	event_del(&gw->slap.conn.event);
+
 	socket_close(gw->slap.conn.socket);
 
 	gw->slap.status=SLAP_INACTIVE;
 
 	slap_recvhb_stop(gw);
 	slap_sendhb_stop(gw);
+
+	/* Reset state - 0-UNKNOWN,1-UP, 2-DOWN */
+	for(i=0;i<MAX_SLOT;i++)
+		gw->slot[i].status=0;
+
+	gw_set_status(gw, GW_STATUS_UNAVAIL);
 }
 
 static void slap_recvhb_stop(struct gateway_s *gw) {
@@ -147,7 +168,7 @@ static void slap_recvhb_extend(struct gateway_s *gw) {
 	evtimer_add(&gw->slap.hb.recvtimer, &gw->slap.hb.recvtv);
 }
 
-static void slap_msg_recvhb(struct gateway_s *gw) {
+static void slap_msg_recvhb(struct gateway_s *gw, ss7_v2_header_t *hdr) {
 	gw->slap.hb.recv=time(NULL);
 }
 
@@ -304,24 +325,167 @@ static void slap_sendhb_init(struct gateway_s *gw) {
 }
 
 
+/* 2009-01-21 15:11:07.993 slap_msg_process/394 Unknown SLAP Message 0c from gateways t3COM-verl-de01
+ * 2009-01-21 15:11:07.993 SLAPIN  dc 31 0c 50 d9 bc 3f 4c 00 00 00 02 7c 01 01 73   .1.P..?L....|..s
+ * 2009-01-21 15:11:07.994 SLAPIN  02 00 02 74 21 00 00 00 00 00 00 00 00 00 00 00   ...t!...........
+ * 2009-01-21 15:11:07.994 SLAPIN  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00   ................
+ * 2009-01-21 15:11:07.994 SLAPIN  00 00 00 00 00 00 7f 21 00 00 00 00 00 00 00 00   .......!........
+ * 2009-01-21 15:11:07.994 SLAPIN  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00   ................
+ * 2009-01-21 15:11:07.994 SLAPIN  00 00 00 00 00 00 00 00 00 7a 01 1f               .........z..    
+ */
+static void slap_msg_recv_register(struct gateway_s *gw, ss7_v2_header_t *hdr) {
+	uint8_t		*msg=slap_msg_payloadptr(hdr);
+	uint32_t	slot=ntohl(hdr->location_id);
+	uint8_t		msglen=slap_msg_payload_len(hdr);
+	uint8_t		*end=msg+msglen;
+	uint8_t		span=0xff;
 
+	while(msg < end) {
+		uint8_t	field=*msg++;
+		uint8_t	flen=*msg++;
 
+		switch(field) {
+			case(SLAP_LINK_STATUS): {
+				uint8_t status=*(msg+1);
+				span=*msg;
+
+				gw_ds1_set_status(gw, slot, span, status);
+
+				/* FIXME - We probably would like to signal something here */
+				logwrite(LOG_DEBUG, "REGISTER contained link status slot %d span %d status %d",
+					slot, span, status);
+
+				break;
+			}
+			case(SLAP_DS0_STATUS): {
+				uint8_t	chan;
+				span=*msg;
+
+				/* Check if we have non idle ds0s - This shouldnt happen
+				   and i am unshure on how to handle that - so for now
+				   log an error.
+				 */
+				for(chan=0;chan<flen-1;chan++) {
+					uint8_t	ds0status=*(msg+1+chan);
+
+					if (ds0status)
+						logwrite(LOG_ERROR, "SLAP REGISTER has non idle ds0 %d status %d", chan, ds0status);
+
+					gw_ds0_set_status(gw, slot, span, chan, ds0status);
+				}
+			}
+			case(SLAP_DS0_BLOCKING): {
+				uint8_t	ds0;
+				span=*msg;
+
+				for(ds0=0;ds0<flen-1;ds0++) {
+					uint8_t	ds0block=*(msg+1+ds0);
+
+					if (ds0block)
+						logwrite(LOG_ERROR, "SLAP REGISTER has blocked ds0 %d status %d", ds0, ds0block);
+				}
+
+			}
+			case(SLAP_TOTAL_MDM_AVAIL):
+			case(SLAP_STARTUP_TEMP):
+				break;
+			default:
+				logwrite(LOG_ERROR, "SLAP REGISTER message contained field %02x len %d", field, flen);
+				break;
+		}
+		msg+=flen;
+	}
+
+	if (span != 0xff)
+		mgcp_send_rsip_span(gw, slot, span);
+}
+
+/*
+2009-01-21 14:01:56.089 slap_msg_process/321 processing SLAP message for gw t3COM-verl-de01
+2009-01-21 14:01:56.089 SLAPIN  dc 31 0b 0c d9 bc 3f 4c 00 00 00 0f 7b 0a d9 bc   .1....?L....{...
+2009-01-21 14:01:56.089 SLAPIN  3f 4c 00 00 00 02 00 01                           ?L......        
+*/
+static void slap_msg_recv_event(struct gateway_s *gw, ss7_v2_header_t *hdr) {
+	uint8_t		*msg=slap_msg_payloadptr(hdr);
+	uint8_t		msglen=slap_msg_payload_len(hdr);
+	uint8_t		*end=msg+msglen;
+
+	while(msg < end) {
+		uint8_t	field=*msg++;
+		uint8_t	flen=*msg++;
+
+		switch(field) {
+			case(SLAP_STATUS_CHANGE): {
+				status_chg_t	*sc=(status_chg_t *) msg;
+
+				logwrite(LOG_DEBUG, "Status change: ESIG %08x SLOT: %d Status: %d",
+					ntohl(sc->esig), ntohl(sc->slot), ntohs(sc->status));
+
+				gw_slot_set_status(gw, ntohl(sc->slot), ntohs(sc->status));
+
+				/* FIXME
+				 *
+				 * 00 -> 01 Unknown -> Up
+				 * 00 -> 02 Unknown -> Down
+				 * 01 -> 02 Up -> Down
+				 * 02 -> Up Down -> up
+				 *
+				 */
+
+				break;
+			}
+			default:
+				logwrite(LOG_ERROR, "SLAP Status change message contained field %02x len %d", field, flen);
+				break;
+		}
+		msg+=flen;
+	}
+}
+
+/*
+2009-01-21 14:01:56.190 slap_msg_process/321 processing SLAP message for gw t3COM-verl-de01
+2009-01-21 14:01:56.190 SLAPIN  dc 31 0c 50 d9 bc 3f 4c 00 00 00 02 7c 01 01 73   .1.P..?L....|..s
+2009-01-21 14:01:56.190 SLAPIN  02 00 02 74 21 00 00 00 00 00 00 00 00 00 00 00   ...t!...........
+2009-01-21 14:01:56.190 SLAPIN  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00   ................
+2009-01-21 14:01:56.190 SLAPIN  00 00 00 00 00 00 7f 21 00 00 00 00 00 00 00 00   .......!........
+2009-01-21 14:01:56.190 SLAPIN  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00   ................
+2009-01-21 14:01:56.190 SLAPIN  00 00 00 00 00 00 00 00 00 7a 01 1f               .........z..    
+*/
 
 
 static void slap_msg_process(struct gateway_s *gw) {
 	ss7_v2_header_t		*hdr=(ss7_v2_header_t *) &gw->slap.read.buffer;
 
-	logwrite(LOG_DEBUG, "processing SLAP message for gw %s", gw->name);
-	dump_hex(LOG_DEBUG, "SLAPIN ", gw->slap.read.buffer, slap_msglen(gw));
+	if (hdr->protocol_id != SLAP_MAGIC) {
+		logwrite(LOG_ERROR, "SLAP packet without SLAP magic 0xdc for gateway %s", gw->name);
+		slap_connection_drop(gw);
+	}
+
+	dump_hex(LOG_DEBUG, "SLAPIN ", gw->slap.read.buffer, slap_msg_len(hdr));
 
 	/* Any packet acts as a heartbeat */
 	slap_recvhb_extend(gw);
 
 	switch(hdr->app_class) {
 		case(SLAP_AC_HEARTBEAT):
-			slap_msg_recvhb(gw);
+			slap_msg_recvhb(gw, hdr);
+			break;
+		case(SLAP_AC_EVENT):
+			slap_msg_recv_event(gw, hdr);
+			break;
+		case(SLAP_AC_REGISTER):
+			slap_msg_recv_register(gw, hdr);
+			break;
+		default:
+			logwrite(LOG_ERROR, "Unknown SLAP Message %02x from gateways %s",
+				hdr->app_class, gw->name);
+			dump_hex(LOG_DEBUG, "SLAPIN ", gw->slap.read.buffer, slap_msg_len(hdr));
 			break;
 	}
+
+	/* FIXME: We want to make this more explicit - for now its okay */
+	if (gw->slap.status == SLAP_CONNECTED)
+		gw->slap.status=SLAP_ACTIVE;
 
 	slap_msg_zap(gw);
 }
@@ -335,29 +499,20 @@ static void slap_read(struct gateway_s *gw, int fd) {
 	len=read(fd, gw->slap.read.buffer+gw->slap.read.valid, maxread);
 
 	if (len == 0) {
-		/*
-		 * FIXME The tcp connection dropped - we need to signal to MGCP 
-		 * and clear state
-		 * Then we need to restart the connection timer
-		 */
-		logwrite(LOG_DEBUG, "SLAP Connection from %s/%s dropped", gw->name, inet_ntoa(gw->slap.addr.in));
+		logwrite(LOG_DEBUG, "SLAP connection from %s/%s dropped by remote", gw->name, inet_ntoa(gw->slap.addr.in));
 		slap_connection_drop(gw);
+		return;
 	}
-
-	logwrite(LOG_DEBUG, "SLAP read %d bytes on gw %s", len, gw->name);
 
 	gw->slap.read.valid+=len;
 
-	dump_hex(LOG_DEBUG, "SLAPINBUF ", gw->slap.read.buffer, MIN(32,gw->slap.read.valid));
-	logwrite(LOG_DEBUG, "SLAP msg complete %d size %d", slap_msg_complete(gw), slap_msglen(gw));
-
+	/* Process all messages in the input buffer */
 	while(slap_msg_complete(gw))
 		slap_msg_process(gw);
 }
 
 static void slap_conn_callback(int fd, short event, void *arg) {
 	struct gateway_s	*gw=arg;
-	logwrite(LOG_DEBUG, "got event %04x on fd %d", event, fd);
 
 	if (event & EV_READ)
 		slap_read(gw, fd);
@@ -374,7 +529,6 @@ static void slap_conn_callback(int fd, short event, void *arg) {
 }
 
 static void slap_conn_notify(struct gateway_s *gw, short ev) {
-	logwrite(LOG_DEBUG, "setting event notify on socket %d to %04x", gw->slap.conn.socket, ev);
 	event_set(&gw->slap.conn.event, gw->slap.conn.socket, ev, slap_conn_callback, gw);
 	event_add(&gw->slap.conn.event, NULL);
 }
@@ -398,6 +552,8 @@ static void slap_connected(struct gateway_s *gw, int socket) {
 	slap_conn_notify(gw, EV_READ|EV_PERSIST);
 
 	slap_sendhb_init(gw);
+
+	gw_set_status(gw, GW_STATUS_AVAIL);
 }
 
 static void slap_accept(int fd, short event, void *arg) {
@@ -409,7 +565,7 @@ static void slap_accept(int fd, short event, void *arg) {
 	if (event & EV_READ) {
 		socket=accept(fd, (struct sockaddr *) &sin, &sinlen);
 		if (socket < 0) {
-			logwrite(LOG_ERROR, "accept returned errorr: %s", strerror(errno));
+			logwrite(LOG_ERROR, "accept returned error: %s", strerror(errno));
 		} else {
 			logwrite(LOG_DEBUG, "incoming SLAP connect from gateway %s", inet_ntoa(sin.sin_addr));
 
@@ -435,6 +591,9 @@ void slap_init(void ) {
 		logwrite(LOG_ERROR, "Failed to bind to SLAP port %d", SLAP_PORT);
 		exit(-1);
 	}
+
+	logwrite(LOG_INFO, "Opened SLAP port %d for incoming connections", SLAP_PORT);
+
 	socket_set_nonblock(slapsock);
 	socket_listen(slapsock, 25);
 
