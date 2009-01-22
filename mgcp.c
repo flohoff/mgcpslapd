@@ -32,7 +32,7 @@ static int		mgcpsock;
 static int		nextmsgid;
 static struct event	mgcpsockevent;
 GList			*pktfreelist=NULL;
-GList			*pktacklist=NULL;
+GHashTable		*sendpkttable;
 
 #define MGCP_MAX_LINES		64
 #define MGCP_MAX_CMDPART	8
@@ -241,7 +241,7 @@ static void mgcp_pkt_send_pure(struct mgcppkt_s *pkt) {
 	pkt->sent++;
 }
 
-static void mgcp_pkt_sendtimer_start(struct mgcppkt_s *pkt);
+static void mgcp_pkt_retranstimer_start(struct mgcppkt_s *pkt);
 
 #define MGCP_PKT_DELETE		30
 #define MGCP_PKT_RETRY_TIMER	3
@@ -250,7 +250,7 @@ static void mgcp_pkt_sendtimer_start(struct mgcppkt_s *pkt);
 static void mgcp_pkt_delete(int fd, short event, void *arg) {
 	struct mgcppkt_s	*pkt=arg;
 
-	pktacklist=g_list_remove_link(pktacklist, &pkt->list);
+	g_hash_table_remove(sendpkttable, &pkt->msgid);
 
 	mgcp_pkt_put(pkt);
 }
@@ -270,23 +270,21 @@ static void mgcp_pkt_retransmit(int fd, short event, void *arg) {
 	mgcp_pkt_send_pure(pkt);
 
 	if (pkt->sent < MGCP_PKT_RETRANSMIT)
-		mgcp_pkt_sendtimer_start(pkt);
+		mgcp_pkt_retranstimer_start(pkt);
 	else
 		mgcp_pkt_deltimer_start(pkt);
 }
 
-static void mgcp_pkt_sendtimer_start(struct mgcppkt_s *pkt) {
+static void mgcp_pkt_retranstimer_stop(struct mgcppkt_s *pkt) {
+	evtimer_del(&pkt->timer);
+}
+
+static void mgcp_pkt_retranstimer_start(struct mgcppkt_s *pkt) {
 	pkt->tv.tv_sec=MGCP_PKT_RETRY_TIMER;
 	pkt->tv.tv_usec=0;
 
 	evtimer_set(&pkt->timer, &mgcp_pkt_retransmit, pkt);
 	evtimer_add(&pkt->timer, &pkt->tv);
-}
-
-static void mgcp_pkt_queue_add(struct mgcppkt_s *pkt) {
-	pktacklist=g_list_concat(pktacklist, &pkt->list);
-
-	mgcp_pkt_sendtimer_start(pkt);
 }
 
 static void mgcp_pkt_send(struct mgcppkt_s *pkt) {
@@ -299,12 +297,15 @@ static void mgcp_pkt_send(struct mgcppkt_s *pkt) {
 
 	mgcp_pkt_send_pure(pkt);
 
+	logwrite(LOG_ERROR, "MGCP - adding msgid %d", pkt->msgid);
+	g_hash_table_insert(sendpkttable, &pkt->msgid, pkt);
+
 	/*
 	 * In case of a command retransmit
 	 * In case of a reply start delete timer
 	 */
 	if (pkt->type == PKT_TYPE_COMMAND)
-		mgcp_pkt_queue_add(pkt);
+		mgcp_pkt_retranstimer_start(pkt);
 	else
 		mgcp_pkt_deltimer_start(pkt);
 }
@@ -426,7 +427,7 @@ static void mgcp_process_auep(struct sepstr_s *lines, int verb, int msgid, struc
 	return;
 }
 
-static void mgcp_msg_parse(struct sepstr_s *lines, int verb, int msgid, struct endpoint_s *ep) {
+static void mgcp_cmdmsg_parse(struct sepstr_s *lines, int verb, int msgid, struct endpoint_s *ep) {
 	switch(verb) {
 		case(MGCP_VERB_AUEP):
 			mgcp_process_auep(lines, verb, msgid, ep);
@@ -443,6 +444,21 @@ static void mgcp_update_address(struct gateway_s *gw, struct sockaddr_in *sin) {
 		memcpy(&gw->mgcp.addr.sin, sin, sizeof(struct sockaddr_in));
 }
 
+static void mgcp_respmsg_parse(struct sepstr_s *lines, int result, int msgid) {
+	struct mgcppkt_s	*pkt;
+
+	pkt=g_hash_table_lookup(sendpkttable, &msgid);
+
+	if (!pkt) {
+		logwrite(LOG_ERROR, "Got response for unknown msgid %d", msgid);
+		return;
+	}
+
+	pkt->ack++;
+
+	mgcp_pkt_retranstimer_stop(pkt);
+	mgcp_pkt_deltimer_start(pkt);
+}
 
 static void mgcp_msg_process(struct sepstr_s *lines, int nolines, struct sockaddr_in *sin) {
 	struct sepstr_s		cmd[MGCP_MAX_CMDPART];
@@ -450,6 +466,7 @@ static void mgcp_msg_process(struct sepstr_s *lines, int nolines, struct sockadd
 	struct endpoint_s	*ep;
 	int			msgid;
 	int			verbid;
+	int			result;
 
 	cmdparts=mgcp_splitbuffer(lines[0].ptr, lines[0].len, 0x20, cmd, MGCP_MAX_CMDPART);
 
@@ -458,8 +475,10 @@ static void mgcp_msg_process(struct sepstr_s *lines, int nolines, struct sockadd
 
 	/* Is it a response ? */
 	if  (*cmd[0].ptr >= '0' && *cmd[0].ptr <= '9') {
-		logwrite(LOG_ERROR, "Responses currently unhandled");
+		result=strtol(cmd[0].ptr, NULL, 10);
+		msgid=strtol(cmd[1].ptr, NULL, 10);
 
+		mgcp_respmsg_parse(lines+1, result, msgid);
 	} else {
 		if (!vstr_str2val(cmd[0].ptr, mgcpverb, &verbid)) {
 			logwrite(LOG_DEBUG, "MGCP verb not found %s", cmd[0]);
@@ -469,7 +488,7 @@ static void mgcp_msg_process(struct sepstr_s *lines, int nolines, struct sockadd
 		ep=mgcp_get_endpoint(cmd[2].ptr);
 
 		mgcp_update_address(ep->gw, sin);
-		mgcp_msg_parse(lines+1, verbid, msgid, ep);
+		mgcp_cmdmsg_parse(lines+1, verbid, msgid, ep);
 
 		g_slice_free(struct endpoint_s, ep);
 	}
@@ -515,6 +534,8 @@ static void mgcp_read(int fd, short event, void *arg) {
 }
 
 int mgcp_init(void ) {
+
+	sendpkttable=g_hash_table_new(g_int_hash, g_int_equal);
 
 	mgcpsock=socket_open(NULL, MGCP_PORT, IPPROTO_UDP);
 	socket_set_nonblock(mgcpsock);
