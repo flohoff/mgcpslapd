@@ -100,6 +100,12 @@ static valstring rsipstr[] = {
 
 static void mgcp_pkt_put(struct mgcppkt_s *pkt) {
 	logwrite(LOG_DEBUG, "returning pkt to list %p", pkt);
+
+	g_string_erase(pkt->msg, 0, -1);
+	g_string_erase(pkt->endpoint, 0, -1);
+	g_string_erase(pkt->body, 0, -1);
+	g_string_erase(pkt->resultstr, 0, -1);
+
 	pktfreelist=g_list_concat(&pkt->list, pktfreelist);
 }
 
