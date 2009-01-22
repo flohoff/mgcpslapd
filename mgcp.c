@@ -466,7 +466,6 @@ static void mgcp_msg_process(struct sepstr_s *lines, int nolines, struct sockadd
 	/* Is it a response ? */
 	if  (*cmd[0].ptr >= '0' && *cmd[0].ptr <= '9') {
 		result=strtol(cmd[0].ptr, NULL, 10);
-		msgid=strtol(cmd[1].ptr, NULL, 10);
 
 		mgcp_respmsg_parse(lines+1, result, msgid);
 	} else {
