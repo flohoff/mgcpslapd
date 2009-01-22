@@ -395,9 +395,6 @@ static void slap_msg_recv_register(struct gateway_s *gw, ss7_v2_header_t *hdr) {
 		}
 		msg+=flen;
 	}
-
-	if (span != 0xff)
-		mgcp_send_rsip_span(gw, slot, span);
 }
 
 /*

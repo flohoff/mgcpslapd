@@ -165,31 +165,6 @@ static int mgcp_splitbuffer(char *buffer, int len, char sep, struct sepstr_s *pa
 	return (parts->len) ? j+1 : j;
 }
 
-static void mgcp_send(struct gateway_s *gw, char *buffer, int len) {
-	int	rc;
-
-	dump_hex(LOG_DEBUG, "MGCPOUT ", (uint8_t *) buffer, len);
-
-	rc=sendto(mgcpsock, buffer, len+1, 0,
-		(struct sockaddr *) &gw->mgcp.addr.sin, sizeof(struct sockaddr_in));
-
-	logwrite(LOG_DEBUG, "sendto returned %d", rc);
-
-	//logwrite(LOG_DEBUG, "AUEP gw %s msgid %s line %s", gw->name, cmd[1].ptr, lines[0].ptr);
-
-}
-
-void mgcp_send_rsip_span(struct gateway_s *gw, int slot, int span) {
-	char	buffer[128];
-	int	l;
-
-	l=sprintf(buffer, "RSIP %d S%d/ds1-%d/*@%s MGCP 1.0\nRM: restart\nRD: 0\n",
-		nextmsgid++, slot+1, span, gw->name);
-
-	mgcp_send(gw, buffer, l);
-}
-
-
 static int mgcp_pkt_complete(struct mgcppkt_s *pkt) {
 
 
@@ -308,6 +283,21 @@ static void mgcp_pkt_send(struct mgcppkt_s *pkt) {
 		mgcp_pkt_retranstimer_start(pkt);
 	else
 		mgcp_pkt_deltimer_start(pkt);
+}
+
+void mgcp_send_rsip_span(struct gateway_s *gw, int slot, int span, int restart, int delay) {
+	struct mgcppkt_s	*pkt;
+
+	pkt=mgcp_pkt_get();
+
+	pkt->gw=gw;
+	pkt->type=PKT_TYPE_COMMAND;
+	pkt->verb=MGCP_VERB_RSIP;
+	g_string_printf(pkt->endpoint, "S/%d/ds1-%d/*", slot+1, span);
+	g_string_printf(pkt->body, "RM: %s\nRD: %d\n",
+		vstr_val2str(rsipstr, restart, "restart"), delay);
+
+	mgcp_pkt_send(pkt);
 }
 
 void mgcp_send_rsip_gw(struct gateway_s *gw, int restart, int delay) {

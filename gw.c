@@ -19,6 +19,17 @@ struct ds1_s *gw_ds1_get_or_create(struct gateway_s *gw, int slot, int ds1) {
 
 void gw_ds1_set_status(struct gateway_s *gw, int slot, int span, int status) {
 	struct ds1_s *ds1=gw_ds1_get_or_create(gw, slot, span);
+
+	if (ds1->status != DS1_STATUS_UP) {
+		if (status == DS1_STATUS_UP) {
+			mgcp_send_rsip_span(gw, slot, span, MGCP_RSIP_RESTART, 0);
+		}
+	} else if (ds1->status == DS1_STATUS_UP) {
+		if (status != DS1_STATUS_UP) {
+			mgcp_send_rsip_span(gw, slot, span, MGCP_RSIP_FORCED, 0);
+		}
+	}
+
 	ds1->status=status;
 }
 
