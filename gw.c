@@ -8,13 +8,49 @@
 #include "mgcp.h"
 #include "logging.h"
 
-GHashTable		*gwtable;
+static GHashTable	*gwtable;
+static GList		*callfreelist=NULL;
+
+static void gw_call_put(struct call_s *call) {
+	logwrite(LOG_DEBUG, "returning call to freelist %p", call);
+	callfreelist=g_list_concat(&call->list, callfreelist);
+}
+
+static struct call_s *gw_call_get(void ) {
+	struct call_s		*call;
+	GList			*first;
+
+	first=g_list_first(callfreelist);
+
+	if (!first) {
+		call=g_slice_new0(struct call_s);
+
+		call->list.data=call;
+
+		logwrite(LOG_DEBUG, "returning newly allocated call %p", call);
+
+		return call;
+	}
+
+	callfreelist=g_list_remove_link(callfreelist, first);
+
+	logwrite(LOG_DEBUG, "returning call from freelist %p %p", first->data, first);
+
+	return first->data;
+}
+
 
 struct ds1_s *gw_ds1_get_or_create(struct gateway_s *gw, int slot, int ds1) {
 	if (!gw->slot[slot].ds1[ds1])
 		gw->slot[slot].ds1[ds1]=calloc(1, sizeof(struct ds1_s));
 
 	return gw->slot[slot].ds1[ds1];
+}
+
+struct ds0_s *gw_ds0_get(struct gateway_s *gw, int slot, int ds1no, int ds0no) {
+	struct ds1_s	*ds1=gw_ds1_get_or_create(gw, slot, ds1no);
+
+	return &ds1->ds0[ds0no];
 }
 
 void gw_ds1_set_status(struct gateway_s *gw, int slot, int span, int status) {
@@ -39,6 +75,11 @@ void gw_ds0_set_status(struct gateway_s *gw, int slot, int span, int chan, int s
 }
 
 void gw_slot_set_status(struct gateway_s *gw, int slot, int status) {
+	int	i;
+	if (status == 2) {
+		for(i=0;i<3;i++)
+			gw_ds1_set_status(gw, slot, i, DS1_STATUS_UNKNOWN);
+	}
 	gw->slot[slot].status=status;
 }
 
@@ -54,10 +95,65 @@ void gw_set_status(struct gateway_s *gw, int status) {
 	gw->status=status;
 }
 
-int gw_incoming_call(struct endpoint_s *ep, int mgcpmsgid,
+int gw_ds0_idle(struct ds0_s *ds0) {
+	return (ds0->status == DS0_STATUS_IDLE);
+}
+
+/* Okay - this is tricky - we need a callid for SLAP and
+   for MGCP for later reference.
+
+   MGCP has a HEX string and SLAP uses a 15 bit identifier
+   with an identifier of 0 beeing illegal.
+
+ */
+int gw_callid_next(struct gateway_s *gw) {
+	gw->callid++;
+	gw->callid&=0x7fff;
+	if (gw->callid == 0)
+		gw->callid++;
+
+	/* FIXME: Check for existing callid */
+	return gw->callid;
+}
+
+void gw_mgcp_call_drop(struct endpoint_s *ep, int mgcpmsgid, int connid) {
+	struct call_s	*call;
+
+	call=g_hash_table_lookup(ep->gw->calltable, &connid);
+
+	if (!call) {
+		logwrite(LOG_ERROR, "Could not find ConnectionID %x from %s", connid, ep->gw->name);
+		return;
+	}
+
+	slap_call_drop(call->ep.gw, call->ep.slot, call->ep.span, call->ep.chan, call->callid);
+}
+
+int gw_mgcp_call_setup(struct endpoint_s *ep, int mgcpmsgid,
 		char *anumber, char *bnumber, int bearer) {
+	struct ds0_s	*ds0=gw_ds0_get(ep->gw, ep->slot, ep->span, ep->chan);
+	struct call_s	*call=gw_call_get();
+#if 0
+	if (!gw_ds0_idle(ds0)) {
+		mgcp_send_busy(ep, mgcpmsgid);
+		return 0;
+	}
+#endif
+	ds0->status=DS0_STATUS_INCOMING;
+	ds0->call=call;
 
+	memcpy(&call->ep, ep, sizeof(struct endpoint_s));
+	strncpy(call->anumber, anumber, NUMBER_MAX_SIZE);
+	strncpy(call->bnumber, bnumber, NUMBER_MAX_SIZE);
 
+	call->callid=gw_callid_next(ep->gw);
+
+	g_hash_table_insert(ep->gw->calltable, &call->callid, call);
+
+	slap_call_incoming(ep->gw, ep->slot, ep->span, ep->chan,
+		call->bearertype, call->anumber, call->bnumber, call->callid);
+
+	return call->callid;
 }
 
 struct gateway_s *gw_lookup(char *name) {
@@ -74,6 +170,7 @@ struct gateway_s *gw_create(char *name) {
 	strncpy(gw->name, name, sizeof(gw->name));
 
 	g_hash_table_insert(gwtable, gw->name, gw);
+	gw->calltable=g_hash_table_new(g_int_hash, g_int_equal);
 
 	slap_init_gateway(gw);
 	mgcp_init_gateway(gw);

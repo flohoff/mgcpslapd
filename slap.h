@@ -36,6 +36,18 @@ typedef struct {
 	uint16_t	status;
 } status_chg_t;
 
+typedef struct {
+	uint8_t		msg_type;
+	uint8_t		ds1_id;
+
+	uint8_t		CES;
+	uint8_t		reserved_1;
+	uint8_t		reserved_2;
+	uint8_t		call_id_msb;
+	uint8_t		call_id_lsb;
+	uint8_t		len_of_ies;
+} slap_cc_t;
+
 #define SLAP_AC_CALLCONTROL	0x01
 #define	SLAP_AC_HEARTBEAT	0x02
 #define SLAP_AC_CMDREQ		0x03
@@ -60,8 +72,18 @@ typedef struct {
 #define SLAP_TOTAL_MDM_AVAIL	0x7a
 #define SLAP_DS0_BLOCKING	0x7f
 
+#define SLAP_COMS_SETUP_IND	0x1b
+#define SLAP_COMS_DISC_IND	0x33
+#define SLAP_COMS_DISC_REQ	0x32
+#define SLAP_COMS_CLEAR_REQ	0x07
+#define SLAP_COMS_CLEAR_CONF	0x08
+
 void slap_init(void );
 int slap_isactive(struct gateway_s *);
 void slap_init_gateway(struct gateway_s *);
+int slap_callid_next(struct gateway_s *);
+int slap_call_incoming(struct gateway_s *, int slot, int span, int chan,
+			int bearer, char *anumber, char *number, int callid);
+int slap_call_drop(struct gateway_s *, int slot, int span, int chan, int callid);
 
 #endif

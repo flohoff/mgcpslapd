@@ -349,7 +349,7 @@ void mgcp_send_rsip_span(struct gateway_s *gw, int slot, int span, int restart, 
 	pkt->gw=gw;
 	pkt->type=PKT_TYPE_COMMAND;
 	pkt->verb=MGCP_VERB_RSIP;
-	g_string_printf(pkt->endpoint, "S/%d/ds1-%d/*", slot+1, span);
+	g_string_printf(pkt->endpoint, "S%d/ds1-%d/*", slot+1, span);
 	g_string_printf(pkt->body, "RM: %s\nRD: %d\n",
 		vstr_val2str(rsipstr, restart, "restart"), delay);
 
@@ -544,7 +544,7 @@ static int mgcp_parse_localconnect(struct sepstr_s *local, struct localconnect_s
 	return 1;
 }
 
-static void mgcp_send_response(struct gateway_s *gw, int result, int msgid, char *resultstring) {
+static void mgcp_send_response(struct gateway_s *gw, int result, int msgid, char *resultstring, char *response) {
 	struct mgcppkt_s	*pkt;
 
 	pkt=mgcp_pkt_get();
@@ -557,31 +557,66 @@ static void mgcp_send_response(struct gateway_s *gw, int result, int msgid, char
 
 	g_string_printf(pkt->resultstr, resultstring);
 
+	if (response)
+		g_string_printf(pkt->body, "%s", response);
+
 	mgcp_pkt_send(pkt);
+}
+
+static void mgcp_process_dlcx(struct sepstr_s *lines, int verb, int msgid, struct endpoint_s *ep) {
+	struct sepstr_s	*connidline;
+	int		connid;
+
+	connidline=mgcp_line_find(lines, "I:");
+
+	if (!connidline) {
+		logwrite(LOG_ERROR, "DLCX without an ConnectionId for %s", ep->gw->name);
+		return;
+	}
+
+	connid=strtol(connidline->ptr+3, NULL, 16);
+
+	gw_mgcp_call_drop(ep, msgid, connid);
 }
 
 static void mgcp_process_crcx(struct sepstr_s *lines, int verb, int msgid, struct endpoint_s *ep) {
 	struct localconnect_s	lc;
-	struct sepstr_s	*local;
+	struct sepstr_s		*local;
+	int			connid;
+	char			connidstr[64];
 
 	local=mgcp_line_find(lines, "L:");
 
 	if (!local) {
-		mgcp_send_response(ep->gw, 524, msgid, "No LocalConnectionOptions");
+		mgcp_send_response(ep->gw, 524, msgid, "No LocalConnectionOptions", NULL);
 		return;
 	}
 
 	if (!mgcp_parse_localconnect(local, &lc)) {
-		mgcp_send_response(ep->gw, 524, msgid, "LocalConnectionOptions to long");
+		mgcp_send_response(ep->gw, 524, msgid, "LocalConnectionOptions to long", NULL);
 		return;
 	}
 
 	logwrite(LOG_DEBUG, "CRCX from %s to %s type %s", lc.anumber, lc.bnumber,
 		vstr_val2str(bearertype, lc.bearer, "Unknown"));
 
-	if (gw_incoming_call(ep, msgid, lc.anumber, lc.bnumber, lc.bearer))
-		mgcp_send_response(ep->gw, 100, msgid, "working");
+	connid=gw_mgcp_call_setup(ep, msgid, lc.anumber, lc.bnumber, lc.bearer);
+
+	if (!connid) {
+		logwrite(LOG_ERROR, "gw_mgcp_call_setup returned connid %d", connid);
+		mgcp_send_response(ep->gw, 500, msgid, "call setup failed", NULL);
+		return;
+	}
+
+	sprintf(connidstr, "I: %x", connid);
+
+	mgcp_send_response(ep->gw, 200, msgid, "ok", connidstr);
 }
+
+void mgcp_send_busy(struct endpoint_s *ep, int msgid) {
+	mgcp_send_response(ep->gw, 401, msgid, "Busy", NULL);
+}
+
 /*
 	AUEP 900339904 S3/DS1-1/1@t3COM-verl-de01 MGCP 1.0
 	F:
@@ -590,13 +625,13 @@ static void mgcp_process_auep(struct sepstr_s *lines, int verb, int msgid, struc
 
 	switch(mgcp_endpoint_status(ep)) {
 		case(MGCP_EP_AVAIL):
-			mgcp_send_response(ep->gw, 200, msgid, "ok");
+			mgcp_send_response(ep->gw, 200, msgid, "ok", NULL);
 			break;
 		case(MGCP_EP_UNKNOWN):
-			mgcp_send_response(ep->gw, 500, msgid, "endpoint unknown");
+			mgcp_send_response(ep->gw, 500, msgid, "endpoint unknown", NULL);
 			break;
 		default:
-			mgcp_send_response(ep->gw, 405, msgid, "restarting");
+			mgcp_send_response(ep->gw, 405, msgid, "restarting", NULL);
 			break;
 	}
 
@@ -610,6 +645,9 @@ static void mgcp_cmdmsg_parse(struct sepstr_s *lines, int verb, int msgid, struc
 			break;
 		case(MGCP_VERB_CRCX):
 			mgcp_process_crcx(lines, verb, msgid, ep);
+			break;
+		case(MGCP_VERB_DLCX):
+			mgcp_process_dlcx(lines, verb, msgid, ep);
 			break;
 		default:
 			logwrite(LOG_ERROR, "MGCP unhandled VERB %s/%d", vstr_val2str(mgcpverb, verb, "n/a"), verb);

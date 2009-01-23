@@ -10,6 +10,7 @@
 #include <event.h>
 
 #include <stdint.h>
+#include <glib.h>
 
 //#define SLAP_MAXMSG_SIZE	524
 #define SLAP_BUFFER_SIZE	512
@@ -18,10 +19,19 @@
 #define MAX_DS1_PERSLOT		3
 #define MAX_SLOT		14
 
+#define NUMBER_MAX_SIZE		20
+
 enum {
 	DS1_STATUS_UNKNOWN = 0,
 	DS1_STATUS_UP = 1,
 	DS1_STATUS_DOWN = 2
+};
+
+enum {
+	DS0_STATUS_UNKNOWN = 0,
+	DS0_STATUS_IDLE,
+	DS0_STATUS_INCOMING,
+	DS0_STATUS_BUSY,
 };
 
 enum {
@@ -35,9 +45,11 @@ enum {
 	BT_DIGITAL,
 };
 
+struct call_s;
+
 struct ds0_s {
 	uint8_t		status;
-	uint8_t		callid[32];
+	struct call_s	*call;
 };
 
 struct ds1_s {
@@ -55,6 +67,8 @@ struct slot_s {
 struct gateway_s {
 	char		name[128];
 	int		status;
+	int		callid;			/* Next CallID to use */
+	GHashTable	*calltable;
 
 	struct slot_s	slot[MAX_SLOT];
 
@@ -111,6 +125,21 @@ struct endpoint_s {
 	struct gateway_s	*gw;
 };
 
+struct call_s {
+	GList			list;
+
+	int			bearertype;
+	char			anumber[NUMBER_MAX_SIZE];
+	char			bnumber[NUMBER_MAX_SIZE];
+
+	int			callid;		/* SLAP call id / MGCP ConnectionID */
+
+	struct endpoint_s	ep;
+	struct ds0_s		*ds0;
+
+	struct event		timer;
+};
+
 int gw_init(void );
 struct gateway_s *gw_lookup(char *);
 struct gateway_s *gw_lookup_or_create(char *);
@@ -119,6 +148,7 @@ void gw_set_status(struct gateway_s *gw, int status);
 void gw_ds1_set_status(struct gateway_s *gw, int slot, int span, int status);
 void gw_ds0_set_status(struct gateway_s *gw, int slot, int span, int chan, int status);
 void gw_slot_set_status(struct gateway_s *gw, int slot, int status);
-int gw_incoming_call(struct endpoint_s *ep, int mgcpmsgid, char *anumber, char *bnumber, int bearer);
+int gw_mgcp_call_setup(struct endpoint_s *ep, int mgcpmsgid, char *anumber, char *bnumber, int bearer);
+void gw_mgcp_call_drop(struct endpoint_s *ep, int mgcpmsgid, int connid);
 
 #endif

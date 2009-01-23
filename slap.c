@@ -18,7 +18,14 @@
 
 static int		slapsock;
 static struct event	slapevent;
-GHashTable		*gwbyaddr;
+static GHashTable	*gwbyaddr;
+
+#define SLAP_MAX_MSG_SIZE	1024
+
+struct slapmsg_s {
+	int	len;
+	char	buffer[SLAP_MAX_MSG_SIZE];
+};
 
 int slap_isactive(struct gateway_s *gw) {
 	return (gw->slap.status == SLAP_ACTIVE);
@@ -83,10 +90,6 @@ static void slap_dns_init(struct gateway_s *gw) {
 void slap_init_gateway(struct gateway_s *gw) {
 	slap_dns_init(gw);
 }
-
-
-
-
 
 static int slap_msg_payload_len(ss7_v2_header_t *hdr) {
 	return hdr->payload_len;
@@ -171,6 +174,127 @@ static void slap_recvhb_extend(struct gateway_s *gw) {
 static void slap_msg_recvhb(struct gateway_s *gw, ss7_v2_header_t *hdr) {
 	gw->slap.hb.recv=time(NULL);
 }
+
+void slap_msg_create(struct slapmsg_s *msg, int appclass, int slot) {
+	ss7_v2_header_t		*hb=(ss7_v2_header_t *) &msg->buffer;
+
+	hb->protocol_id=SLAP_MAGIC;
+	hb->version=SLAP_VERSION;
+	hb->app_class=appclass;
+	hb->payload_len=0;
+
+	hb->location_id=ntohl(slot-1);
+
+	msg->len=sizeof(ss7_v2_header_t);
+}
+
+void slap_msg_append_cc(struct slapmsg_s *msg, int msgtype, int span, int callid) {
+	char		*p=msg->buffer+sizeof(ss7_v2_header_t);
+	slap_cc_t	*cc=(slap_cc_t *) p;
+
+	cc->msg_type=msgtype;
+	cc->ds1_id=span;
+	cc->CES=0;
+	cc->reserved_1=0;
+	cc->reserved_2=0;
+	cc->call_id_msb=callid>>8;
+	cc->call_id_lsb=callid&0xff;
+
+	msg->len+=sizeof(slap_cc_t);
+}
+
+void slap_msg_create_cc(struct slapmsg_s *msg, int msgtype, int slot, int span, int callid) {
+	slap_msg_create(msg, SLAP_AC_CALLCONTROL, slot);
+	slap_msg_append_cc(msg, msgtype, span, callid);
+}
+
+void slap_msg_cc_append_ie_bearer(struct slapmsg_s *msg, int bearer) {
+	char	*p=msg->buffer+msg->len;
+
+#define COMS_IE_BEARER_CAPABILITY	0x04
+#define COMS_BC_IXC_SPEECH		0x80
+#define COMS_BC_IXC_UNRESTDIG		0x88
+#define COMS_BC_XFERMODE_CIRCUIT	0x80
+#define COMS_BC_DATARATE_64K		0x90
+
+	p[0]=0x0;				/* Reserved */
+	p[1]=COMS_IE_BEARER_CAPABILITY;	/* Element ID */
+	p[2]=0x0a;				/* Length */
+	p[3]=0x80;				/* Coding Standard */
+	p[4]=COMS_BC_IXC_SPEECH;		/* Information transfer capability */
+	p[5]=COMS_BC_XFERMODE_CIRCUIT;		/* Transfer Mode */
+	p[6]=COMS_BC_DATARATE_64K;		/* Transfer Rate */
+	p[7]=0x80;				/* Structure - unused */
+	p[8]=0x80;				/* Configuration - unused */
+	p[9]=0x80;				/* Establishment - unused */
+	p[10]=0x80;				/* Symmetry - unused */
+	p[11]=0x00;				/* Information Transfer Rate */
+	p[12]=0x00;				/* Layer 1 Protocol */
+
+	msg->len+=10+3;
+}
+
+void slap_msg_cc_append_ie_channelid(struct slapmsg_s *msg, int channel) {
+	char		*p=msg->buffer+msg->len;
+	uint32_t	cmap=1<<channel;
+
+#define COMS_IE_CHANNEL_ID		0x18
+#define COMS_CHIP_INTTYPE_PRIMARY_RATE	0x81
+#define COMS_CHID_DCHAN_NO		0x80
+#define COMS_CHID_CHSEL_AS_INDICATED	0x81
+#define COMS_CHID_TYPE_B		0x03
+
+	p[0]=0x0;				/* Reserved */
+	p[1]=COMS_IE_CHANNEL_ID;		/* Element ID */
+	p[2]=0x0c;				/* Length -> 0x0c -> E1*/
+	p[3]=COMS_CHIP_INTTYPE_PRIMARY_RATE;	/* Interface type*/
+	p[4]=0x81;				/* Preferred/Exclusive 0x80/0x81 */
+	p[5]=COMS_CHID_DCHAN_NO;		/* D-Channel indicator */
+	p[6]=COMS_CHID_CHSEL_AS_INDICATED;	/* Information channel select */
+	p[7]=0x80;				/* Interface ID 1 */
+	p[8]=0x80;				/* Interface ID 2 */
+	p[9]=0x80;				/* Coding standard CCIT Standard */
+	p[10]=COMS_CHID_TYPE_B;			/* Channel type */
+
+	p[11]=(cmap>>24)&0xff;			/* Channel map */
+	p[12]=(cmap>>16)&0xff;			/* Channel map */
+	p[13]=(cmap>>8)&0xff;			/* Channel map */
+	p[14]=cmap&0xff;			/* Channel map */
+
+	msg->len+=12+3;
+}
+
+
+/*
+   0000011A  dc 01 01 3c 3e 35 f7 05  00 00 00 01 1b 00 01 00 ...<>5.. ........ 
+   aa bb  
+   a -> 0x1b COMS_SETUP_IND
+   b -> Span 0
+   0000012A  00 b0 51 34 00 04 0a 80  88 80 90 80 80 80 80 00 ..Q4.... ........
+   cc cc dd    ee ff gg
+   c -> Call id
+   d -> Len of IEs
+   e -> Bearer
+   f -> Len
+   g -> Coding standard
+   0000013A  00 00 18 0c 81 81 80 81  80 80 80 03 00 02 00 00 ........ ........
+   aa bb cc
+   a -> Reserved
+   b -> Channel IE
+   c -> Length
+   0000014A  00 6c 0b 82 81 00 81 36  36 37 37 34 37 35 00 70 .l.....6 677475.p
+   0000015A  07 82 81 31 39 31 36 31                          ...19161 
+ */
+
+void slap_msg_cc_finish(struct slapmsg_s *msg) {
+	char		*p=msg->buffer+sizeof(ss7_v2_header_t);
+	slap_cc_t	*cc=(slap_cc_t *) p;
+	ss7_v2_header_t	*hb=(ss7_v2_header_t *) &msg->buffer;
+
+	hb->payload_len=msg->len-sizeof(ss7_v2_header_t);
+	cc->len_of_ies=msg->len-sizeof(ss7_v2_header_t)-sizeof(slap_cc_t);
+}
+
 
 
 
@@ -260,7 +384,10 @@ static void slap_send_notify(struct gateway_s *gw) {
 
 }
 
-static int slap_send(struct gateway_s *gw, ss7_v2_header_t *hdr) {
+static int slap_send(struct gateway_s *gw, struct slapmsg_s *msg) {
+	ss7_v2_header_t *hdr=(ss7_v2_header_t *) &msg->buffer;
+
+	hdr->chassis_id=gw->slap.addr.in.s_addr;
 
 	/* If we have bytes in the buffer - send them first */
 	if (gw->slap.write.valid != 0)
@@ -286,22 +413,15 @@ static int slap_send(struct gateway_s *gw, ss7_v2_header_t *hdr) {
 	return 1;
 }
 
-
 static void slap_sendhb_extend(struct gateway_s *);
 
 static void slap_sendhb(int fd, short event, void *arg) {
 	struct gateway_s	*gw=arg;
-	ss7_v2_header_t		hb;
+	struct slapmsg_s	msg;
 
-	hb.protocol_id=SLAP_MAGIC;
-	hb.version=SLAP_VERSION;
-	hb.app_class=SLAP_AC_HEARTBEAT;
-	hb.payload_len=0;
+	slap_msg_create(&msg, SLAP_AC_HEARTBEAT, 0);
 
-	hb.chassis_id=gw->slap.addr.in.s_addr;
-	hb.location_id=0;
-
-	slap_send(gw, &hb);
+	slap_send(gw, &msg);
 
 	slap_sendhb_extend(gw);
 }
@@ -351,9 +471,8 @@ static void slap_msg_recv_register(struct gateway_s *gw, ss7_v2_header_t *hdr) {
 
 				gw_ds1_set_status(gw, slot, span, status);
 
-				/* FIXME - We probably would like to signal something here */
 				logwrite(LOG_DEBUG, "REGISTER contained link status slot %d span %d status %d",
-					slot, span, status);
+						slot, span, status);
 
 				break;
 			}
@@ -362,9 +481,9 @@ static void slap_msg_recv_register(struct gateway_s *gw, ss7_v2_header_t *hdr) {
 				span=*msg;
 
 				/* Check if we have non idle ds0s - This shouldnt happen
-				   and i am unshure on how to handle that - so for now
-				   log an error.
-				 */
+				  and i am unshure on how to handle that - so for now
+				  log an error.
+				*/
 				for(chan=0;chan<flen-1;chan++) {
 					uint8_t	ds0status=*(msg+1+chan);
 
@@ -384,7 +503,6 @@ static void slap_msg_recv_register(struct gateway_s *gw, ss7_v2_header_t *hdr) {
 					if (ds0block)
 						logwrite(LOG_ERROR, "SLAP REGISTER has blocked ds0 %d status %d", ds0, ds0block);
 				}
-
 			}
 			case(SLAP_TOTAL_MDM_AVAIL):
 			case(SLAP_STARTUP_TEMP):
@@ -398,10 +516,10 @@ static void slap_msg_recv_register(struct gateway_s *gw, ss7_v2_header_t *hdr) {
 }
 
 /*
-2009-01-21 14:01:56.089 slap_msg_process/321 processing SLAP message for gw t3COM-verl-de01
-2009-01-21 14:01:56.089 SLAPIN  dc 31 0b 0c d9 bc 3f 4c 00 00 00 0f 7b 0a d9 bc   .1....?L....{...
-2009-01-21 14:01:56.089 SLAPIN  3f 4c 00 00 00 02 00 01                           ?L......        
-*/
+   2009-01-21 14:01:56.089 slap_msg_process/321 processing SLAP message for gw t3COM-verl-de01
+   2009-01-21 14:01:56.089 SLAPIN  dc 31 0b 0c d9 bc 3f 4c 00 00 00 0f 7b 0a d9 bc   .1....?L....{...
+   2009-01-21 14:01:56.089 SLAPIN  3f 4c 00 00 00 02 00 01                           ?L......        
+ */
 static void slap_msg_recv_event(struct gateway_s *gw, ss7_v2_header_t *hdr) {
 	uint8_t		*msg=slap_msg_payloadptr(hdr);
 	uint8_t		msglen=slap_msg_payload_len(hdr);
@@ -416,7 +534,7 @@ static void slap_msg_recv_event(struct gateway_s *gw, ss7_v2_header_t *hdr) {
 				status_chg_t	*sc=(status_chg_t *) msg;
 
 				logwrite(LOG_DEBUG, "Status change: ESIG %08x SLOT: %d Status: %d",
-					ntohl(sc->esig), ntohl(sc->slot), ntohs(sc->status));
+						ntohl(sc->esig), ntohl(sc->slot), ntohs(sc->status));
 
 				gw_slot_set_status(gw, ntohl(sc->slot), ntohs(sc->status));
 
@@ -431,6 +549,16 @@ static void slap_msg_recv_event(struct gateway_s *gw, ss7_v2_header_t *hdr) {
 
 				break;
 			}
+			case(SLAP_LINK_STATUS): {
+				uint8_t	span=*msg;
+				uint8_t	status=*(msg+1);
+
+				gw_ds1_set_status(gw, ntohl(hdr->location_id), span, status);
+
+				logwrite(LOG_DEBUG, "Link change: gw %s slot: %d span: %d status: %d",
+					gw->name, ntohl(hdr->location_id), span, status);
+
+			}
 			default:
 				logwrite(LOG_ERROR, "SLAP Status change message contained field %02x len %d", field, flen);
 				break;
@@ -440,14 +568,14 @@ static void slap_msg_recv_event(struct gateway_s *gw, ss7_v2_header_t *hdr) {
 }
 
 /*
-2009-01-21 14:01:56.190 slap_msg_process/321 processing SLAP message for gw t3COM-verl-de01
-2009-01-21 14:01:56.190 SLAPIN  dc 31 0c 50 d9 bc 3f 4c 00 00 00 02 7c 01 01 73   .1.P..?L....|..s
-2009-01-21 14:01:56.190 SLAPIN  02 00 02 74 21 00 00 00 00 00 00 00 00 00 00 00   ...t!...........
-2009-01-21 14:01:56.190 SLAPIN  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00   ................
-2009-01-21 14:01:56.190 SLAPIN  00 00 00 00 00 00 7f 21 00 00 00 00 00 00 00 00   .......!........
-2009-01-21 14:01:56.190 SLAPIN  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00   ................
-2009-01-21 14:01:56.190 SLAPIN  00 00 00 00 00 00 00 00 00 7a 01 1f               .........z..    
-*/
+   2009-01-21 14:01:56.190 slap_msg_process/321 processing SLAP message for gw t3COM-verl-de01
+   2009-01-21 14:01:56.190 SLAPIN  dc 31 0c 50 d9 bc 3f 4c 00 00 00 02 7c 01 01 73   .1.P..?L....|..s
+   2009-01-21 14:01:56.190 SLAPIN  02 00 02 74 21 00 00 00 00 00 00 00 00 00 00 00   ...t!...........
+   2009-01-21 14:01:56.190 SLAPIN  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00   ................
+   2009-01-21 14:01:56.190 SLAPIN  00 00 00 00 00 00 7f 21 00 00 00 00 00 00 00 00   .......!........
+   2009-01-21 14:01:56.190 SLAPIN  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00   ................
+   2009-01-21 14:01:56.190 SLAPIN  00 00 00 00 00 00 00 00 00 7a 01 1f               .........z..    
+ */
 
 
 static void slap_msg_process(struct gateway_s *gw) {
@@ -475,7 +603,7 @@ static void slap_msg_process(struct gateway_s *gw) {
 			break;
 		default:
 			logwrite(LOG_ERROR, "Unknown SLAP Message %02x from gateways %s",
-				hdr->app_class, gw->name);
+					hdr->app_class, gw->name);
 			dump_hex(LOG_DEBUG, "SLAPIN ", gw->slap.read.buffer, slap_msg_len(hdr));
 			break;
 	}
@@ -506,6 +634,31 @@ static void slap_read(struct gateway_s *gw, int fd) {
 	/* Process all messages in the input buffer */
 	while(slap_msg_complete(gw))
 		slap_msg_process(gw);
+}
+
+int slap_call_drop(struct gateway_s *gw, int slot, int span, int chan, int callid) {
+	struct slapmsg_s	slapmsg;
+
+	slap_msg_create_cc(&slapmsg, SLAP_COMS_DISC_IND, slot, span, callid);
+	slap_msg_cc_finish(&slapmsg);
+	slap_send(gw, &slapmsg);
+}
+
+int slap_call_incoming(struct gateway_s *gw, int slot, int span, int chan,
+		int bearer, char *anumber, char *number, int callid) {
+	struct slapmsg_s	slapmsg;
+
+	slap_msg_create_cc(&slapmsg, SLAP_COMS_SETUP_IND, slot, span, callid);
+	slap_msg_cc_append_ie_bearer(&slapmsg, bearer);
+	slap_msg_cc_append_ie_channelid(&slapmsg, chan);
+
+	slap_msg_cc_finish(&slapmsg);
+
+	slap_send(gw, &slapmsg);
+
+	slap_sendhb_extend(gw);
+
+	return 0;
 }
 
 static void slap_conn_callback(int fd, short event, void *arg) {
