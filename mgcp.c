@@ -109,15 +109,9 @@ static valstring localoption[] = {
 	{ 0, NULL },
 };
 
-enum {
-	MGCP_BT_UNKNOWN = 0,
-	MGCP_BT_MODEM,
-	MGCP_BT_DIGITAL,
-};
-
 static valstring bearertype[] = {
-	{ MGCP_BT_MODEM,	"modem" },
-	{ MGCP_BT_DIGITAL,	"digital" },
+	{ BT_MODEM,	"modem" },
+	{ BT_DIGITAL,	"digital" },
 	{ 0, NULL },
 };
 
@@ -481,17 +475,9 @@ struct sepstr_s *mgcp_line_find(struct sepstr_s *lines, char *prefix) {
 }
 
 /* L: e:off,nas/bt:modem,nas/cdn:4952419085106,nas/cgn:495246801185 */
-static int mgcp_parse_localconnect(struct sepstr_s *lines, struct localconnect_s *lc) {
-	struct sepstr_s	*local;
+static int mgcp_parse_localconnect(struct sepstr_s *local, struct localconnect_s *lc) {
 	char		*l, *dst;
 	int		i;
-
-	local=mgcp_line_find(lines, "L:");
-
-	if (!local) {
-		logwrite(LOG_ERROR, "Could not find an L: line");
-		return 0;
-	}
 
 	if (local->len > sizeof(lc->buffer)) {
 		logwrite(LOG_ERROR, "lc->buffer too small %d vs %d", local->len, sizeof(lc->buffer));
@@ -558,46 +544,61 @@ static int mgcp_parse_localconnect(struct sepstr_s *lines, struct localconnect_s
 	return 1;
 }
 
-static void mgcp_process_crcx(struct sepstr_s *lines, int verb, int msgid, struct endpoint_s *ep) {
-	struct localconnect_s	lc;
-
-	if (!mgcp_parse_localconnect(lines, &lc))
-		return;
-
-	logwrite(LOG_DEBUG, "CRCX from %s to %s type %s", lc.anumber, lc.bnumber,
-		vstr_val2str(bearertype, lc.bearer, "Unknown"));
-
-}
-/*
-	AUEP 900339904 S3/DS1-1/1@t3COM-verl-de01 MGCP 1.0
-	F:
-*/
-
-static void mgcp_process_auep(struct sepstr_s *lines, int verb, int msgid, struct endpoint_s *ep) {
+static void mgcp_send_response(struct gateway_s *gw, int result, int msgid, char *resultstring) {
 	struct mgcppkt_s	*pkt;
 
 	pkt=mgcp_pkt_get();
 
 	pkt->type=PKT_TYPE_RESULT;
-	pkt->gw=ep->gw;
+	pkt->gw=gw;
 	pkt->msgid=msgid;
+
+	pkt->result=result;
+
+	g_string_printf(pkt->resultstr, resultstring);
+
+	mgcp_pkt_send(pkt);
+}
+
+static void mgcp_process_crcx(struct sepstr_s *lines, int verb, int msgid, struct endpoint_s *ep) {
+	struct localconnect_s	lc;
+	struct sepstr_s	*local;
+
+	local=mgcp_line_find(lines, "L:");
+
+	if (!local) {
+		mgcp_send_response(ep->gw, 524, msgid, "No LocalConnectionOptions");
+		return;
+	}
+
+	if (!mgcp_parse_localconnect(local, &lc)) {
+		mgcp_send_response(ep->gw, 524, msgid, "LocalConnectionOptions to long");
+		return;
+	}
+
+	logwrite(LOG_DEBUG, "CRCX from %s to %s type %s", lc.anumber, lc.bnumber,
+		vstr_val2str(bearertype, lc.bearer, "Unknown"));
+
+	if (gw_incoming_call(ep, msgid, lc.anumber, lc.bnumber, lc.bearer))
+		mgcp_send_response(ep->gw, 100, msgid, "working");
+}
+/*
+	AUEP 900339904 S3/DS1-1/1@t3COM-verl-de01 MGCP 1.0
+	F:
+*/
+static void mgcp_process_auep(struct sepstr_s *lines, int verb, int msgid, struct endpoint_s *ep) {
 
 	switch(mgcp_endpoint_status(ep)) {
 		case(MGCP_EP_AVAIL):
-			pkt->result=200;
-			g_string_printf(pkt->resultstr, "ok");
+			mgcp_send_response(ep->gw, 200, msgid, "ok");
 			break;
 		case(MGCP_EP_UNKNOWN):
-			pkt->result=500;
-			g_string_printf(pkt->resultstr, "Endpoint unknown");
+			mgcp_send_response(ep->gw, 500, msgid, "endpoint unknown");
 			break;
 		default:
-			pkt->result=405;
-			g_string_printf(pkt->resultstr, "Restarting");
+			mgcp_send_response(ep->gw, 405, msgid, "restarting");
 			break;
 	}
-
-	mgcp_pkt_send(pkt);
 
 	return;
 }

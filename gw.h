@@ -29,6 +29,12 @@ enum {
 	GW_STATUS_AVAIL = 1
 };
 
+enum {
+	BT_UNKNOWN = 0,
+	BT_MODEM,
+	BT_DIGITAL,
+};
+
 struct ds0_s {
 	uint8_t		status;
 	uint8_t		callid[32];
@@ -113,5 +119,6 @@ void gw_set_status(struct gateway_s *gw, int status);
 void gw_ds1_set_status(struct gateway_s *gw, int slot, int span, int status);
 void gw_ds0_set_status(struct gateway_s *gw, int slot, int span, int chan, int status);
 void gw_slot_set_status(struct gateway_s *gw, int slot, int status);
+int gw_incoming_call(struct endpoint_s *ep, int mgcpmsgid, char *anumber, char *bnumber, int bearer);
 
 #endif

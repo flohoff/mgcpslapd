@@ -54,6 +54,12 @@ void gw_set_status(struct gateway_s *gw, int status) {
 	gw->status=status;
 }
 
+int gw_incoming_call(struct endpoint_s *ep, int mgcpmsgid,
+		char *anumber, char *bnumber, int bearer) {
+
+
+}
+
 struct gateway_s *gw_lookup(char *name) {
 	return g_hash_table_lookup(gwtable, name);
 }
