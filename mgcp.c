@@ -93,6 +93,35 @@ static valstring rsipstr[] = {
 	{ 0, NULL },
 };
 
+enum {
+	MGCP_L_UNKNOWN = 0,
+	MGCP_L_E,
+	MGCP_L_NASBT,
+	MGCP_L_NASCDN,
+	MGCP_L_NASCGN,
+};
+
+static valstring localoption[] = {
+	{ MGCP_L_E,		"e" },
+	{ MGCP_L_NASBT,		"nas/bt" },
+	{ MGCP_L_NASCDN,	"nas/cdn" },
+	{ MGCP_L_NASCGN,	"nas/cgn" },
+	{ 0, NULL },
+};
+
+enum {
+	MGCP_BT_UNKNOWN = 0,
+	MGCP_BT_MODEM,
+	MGCP_BT_DIGITAL,
+};
+
+static valstring bearertype[] = {
+	{ MGCP_BT_MODEM,	"modem" },
+	{ MGCP_BT_DIGITAL,	"digital" },
+	{ 0, NULL },
+};
+
+#
 #define MAX_MSG_SIZE		512
 #define MAX_BODY_SIZE		512
 #define MAX_EP_SIZE		64
@@ -136,6 +165,39 @@ static struct mgcppkt_s *mgcp_pkt_get(void ) {
 
 	return first->data;
 }
+
+#if 0
+static int mgcp_splitbuffer_copy(char *dest, char *buffer, int len,
+	char *sep, struct sepstr_s *parts, int maxparts) {
+	int	i=0,j=0;
+
+	parts->ptr=dest;
+	parts->len=0;
+
+	while(i<len && j<maxparts) {
+		/* Find char in sep haystack */
+		if (!strchr(sep, buffer[i])) {
+			parts->len++;
+			dest[i]=buffer[i];
+		} else {
+			dest[i++]=0x0;
+
+			parts++;
+			j++;
+			parts->ptr=dest+i;
+			parts->len=0;
+		}
+		i++;
+	}
+
+	if (parts->len == 0)
+		parts[0].ptr=NULL;
+	else
+		parts[1].ptr=NULL;
+
+	return (parts->len) ? j+1 : j;
+}
+#endif
 
 static int mgcp_splitbuffer(char *buffer, int len, char sep, struct sepstr_s *parts, int maxparts) {
 	int	i=0,j=0;
@@ -381,8 +443,131 @@ static int mgcp_endpoint_status(struct endpoint_s *ep) {
 
 	return MGCP_EP_AVAIL;
 }
+ /*
+  * 2009-01-23 09:22:53.498 MGCPIN  43 52 43 58 20 32 31 35 20 73 33 2f 64 73 31 2d   CRCX 215 s3/ds1-
+  * 2009-01-23 09:22:53.498 MGCPIN  31 2f 31 40 74 33 63 6f 6d 2d 76 65 72 6c 2d 64   1/1@t3com-verl-d
+  * 2009-01-23 09:22:53.498 MGCPIN  65 30 31 20 4d 47 43 50 20 31 2e 30 0a 43 3a 20   e01 MGCP 1.0.C: 
+  * 2009-01-23 09:22:53.498 MGCPIN  33 0a 4c 3a 20 65 3a 6f 66 66 2c 6e 61 73 2f 62   3.L: e:off,nas/b
+  * 2009-01-23 09:22:53.498 MGCPIN  74 3a 6d 6f 64 65 6d 2c 6e 61 73 2f 63 64 6e 3a   t:modem,nas/cdn:
+  * 2009-01-23 09:22:53.498 MGCPIN  34 39 35 32 34 31 39 30 38 35 31 30 36 2c 6e 61   4952419085106,na
+  * 2009-01-23 09:22:53.498 MGCPIN  73 2f 63 67 6e 3a 34 39 35 32 34 36 38 30 31 31   s/cgn:4952468011
+  * 2009-01-23 09:22:53.498 MGCPIN  38 35 0a 4d 3a 20 6e 61 73 2f 64 61 74 61 0a 52   85.M: nas/data.R
+  * 2009-01-23 09:22:53.498 MGCPIN  3a 20 6e 61 73 2f 61 75 28 4e 29 2c 6e 61 73 2f   : nas/au(N),nas/
+  * 2009-01-23 09:22:53.498 MGCPIN  61 78 28 4e 29 2c 6e 61 73 2f 6f 66 28 4e 29 0a   ax(N),nas/of(N).
+  * 2009-01-23 09:22:53.498 MGCPIN  53 3a 20 20 0a 58 3a 20 44 36 0a                  S:  .X: D6.     
+  */
 
+struct localconnect_s {
+	int	bearer;
+	char	*anumber;
+	char	*bnumber;
 
+	struct {
+		char	*token;
+		char	*value;
+	} tv[25];
+
+	char	buffer[128];
+};
+
+struct sepstr_s *mgcp_line_find(struct sepstr_s *lines, char *prefix) {
+	int	len=strlen(prefix);
+	while(lines->ptr) {
+		if (strncasecmp(lines->ptr, prefix, len) == 0)
+			return lines;
+		lines++;
+	}
+	return NULL;
+}
+
+/* L: e:off,nas/bt:modem,nas/cdn:4952419085106,nas/cgn:495246801185 */
+static int mgcp_parse_localconnect(struct sepstr_s *lines, struct localconnect_s *lc) {
+	struct sepstr_s	*local;
+	char		*l, *dst;
+	int		i;
+
+	local=mgcp_line_find(lines, "L:");
+
+	if (!local) {
+		logwrite(LOG_ERROR, "Could not find an L: line");
+		return 0;
+	}
+
+	if (local->len > sizeof(lc->buffer)) {
+		logwrite(LOG_ERROR, "lc->buffer too small %d vs %d", local->len, sizeof(lc->buffer));
+		return 0;
+	}
+
+	/* Skip L: and an arbitrary number of spaces */
+	l=local->ptr+2;
+	while(*l == ' ' || *l == '\t')
+		l++;
+
+	/* Split L: line into token/value pairs */
+	i=0;
+	dst=lc->buffer;
+	lc->tv[i].token=dst;
+	while(*l) {
+		switch(*l) {
+			case(':'):
+				*dst++=0x0;
+				lc->tv[i].value=dst;
+				break;
+			case(','):
+				*dst++=0x0;
+				i++;
+				lc->tv[i].token=dst;
+				lc->tv[i].value=NULL;
+				break;
+			case('\n'):
+			case('\r'):
+				break;
+			default:
+				*dst++=*l;
+				break;
+		}
+		l++;
+	}
+
+	*dst++=0x0;
+
+	i++;
+	lc->tv[i].token=NULL;
+	lc->tv[i].value=NULL;
+
+	for(i=0;lc->tv[i].token;i++) {
+		int	value;
+		if (!vstr_str2val(lc->tv[i].token, localoption, &value)) {
+			logwrite(LOG_ERROR, "Unknown L: option %s", lc->tv[i].token);
+			continue;
+		}
+
+		switch(value) {
+			case(MGCP_L_NASBT):
+				if(!vstr_str2val(lc->tv[i].value, bearertype, &lc->bearer))
+					logwrite(LOG_ERROR, "Unknown bearer type %s", lc->tv[i].value);
+				break;
+			case(MGCP_L_NASCDN):
+				lc->bnumber=lc->tv[i].value;
+				break;
+			case(MGCP_L_NASCGN):
+				lc->anumber=lc->tv[i].value;
+				break;
+		}
+	}
+	return 1;
+}
+
+static void mgcp_process_crcx(struct sepstr_s *lines, int verb, int msgid, struct endpoint_s *ep) {
+	struct localconnect_s	lc;
+
+	if (!mgcp_parse_localconnect(lines, &lc))
+		return;
+
+	logwrite(LOG_DEBUG, "CRCX from %s to %s type %s", lc.anumber, lc.bnumber,
+		vstr_val2str(bearertype, lc.bearer, "Unknown"));
+
+}
 /*
 	AUEP 900339904 S3/DS1-1/1@t3COM-verl-de01 MGCP 1.0
 	F:
@@ -421,6 +606,9 @@ static void mgcp_cmdmsg_parse(struct sepstr_s *lines, int verb, int msgid, struc
 	switch(verb) {
 		case(MGCP_VERB_AUEP):
 			mgcp_process_auep(lines, verb, msgid, ep);
+			break;
+		case(MGCP_VERB_CRCX):
+			mgcp_process_crcx(lines, verb, msgid, ep);
 			break;
 		default:
 			logwrite(LOG_ERROR, "MGCP unhandled VERB %s/%d", vstr_val2str(mgcpverb, verb, "n/a"), verb);
