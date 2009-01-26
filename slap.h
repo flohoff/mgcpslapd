@@ -72,11 +72,20 @@ typedef struct {
 #define SLAP_TOTAL_MDM_AVAIL	0x7a
 #define SLAP_DS0_BLOCKING	0x7f
 
+
 #define SLAP_COMS_SETUP_IND	0x1b
-#define SLAP_COMS_DISC_IND	0x33
+#define SLAP_COMS_CALL_PROC_REQ	0x04
+
+#define SLAP_COMS_CONNECT_REQ	0x0c
+#define SLAP_COMS_CONNECT_ACK	0x0d
+
 #define SLAP_COMS_DISC_REQ	0x32
+#define SLAP_COMS_DISC_IND	0x33
+
+#define SLAP_COMS_CLEAR_CONF	0x05
+#define SLAP_COMS_CLEAR_IND	0x06
 #define SLAP_COMS_CLEAR_REQ	0x07
-#define SLAP_COMS_CLEAR_CONF	0x08
+#define SLAP_COMS_CLEAR_RESP	0x08
 
 void slap_init(void );
 int slap_isactive(struct gateway_s *);

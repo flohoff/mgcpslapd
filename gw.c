@@ -156,6 +156,14 @@ int gw_mgcp_call_setup(struct endpoint_s *ep, int mgcpmsgid,
 	return call->callid;
 }
 
+void gw_slap_call_deny(struct gateway_s *gw, int callid) {
+	logwrite(LOG_ERROR, "Call deny from SLAP");
+}
+
+void gw_slap_call_proceed(struct gateway_s *gw, int callid) {
+	logwrite(LOG_DEBUG, "Call proceed from SLAP");
+}
+
 struct gateway_s *gw_lookup(char *name) {
 	return g_hash_table_lookup(gwtable, name);
 }

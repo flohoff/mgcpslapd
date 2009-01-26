@@ -183,7 +183,7 @@ void slap_msg_create(struct slapmsg_s *msg, int appclass, int slot) {
 	hb->app_class=appclass;
 	hb->payload_len=0;
 
-	hb->location_id=ntohl(slot-1);
+	hb->location_id=htonl(slot-1);
 
 	msg->len=sizeof(ss7_v2_header_t);
 }
@@ -576,6 +576,90 @@ static void slap_msg_recv_event(struct gateway_s *gw, ss7_v2_header_t *hdr) {
    2009-01-21 14:01:56.190 SLAPIN  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00   ................
    2009-01-21 14:01:56.190 SLAPIN  00 00 00 00 00 00 00 00 00 7a 01 1f               .........z..    
  */
+ /*
+2009-01-26 09:50:54.272 SLAPIN  dc 01 01 17 d9 bc 3f 4c 00 00 00 02 04 01 01 00   ......?L........
+2009-01-26 09:50:54.272 SLAPIN  00 00 02 0f 00 18 0c 81 81 80 81 00 00 00 00 00   ................
+2009-01-26 09:50:54.272 SLAPIN  00 00 00                                          ...             
+2009-01-26 09:50:54.272 slap_msg_process/606 Unknown SLAP Message 01 from gateways t3com-verl-de01
+
+2009-01-26 09:50:54.272 SLAPIN  dc 01 01 17 d9 bc 3f 4c 00 00 00 02 04 01 01 00   ......?L........
+2009-01-26 09:50:54.272 SLAPIN  00 00 02 0f 00 18 0c 81 81 80 81 00 00 00 00 00   ................
+2009-01-26 09:50:54.273 SLAPIN  00 00 00                                          ...             
+
+2009-01-26 09:50:54.275 SLAPIN  dc 01 01 08 d9 bc 3f 4c 00 00 00 02 0c 01 01 00   ......?L........
+2009-01-26 09:50:54.275 SLAPIN  00 00 02 00                                       ....            
+2009-01-26 09:50:54.275 slap_msg_process/606 Unknown SLAP Message 01 from gateways t3com-verl-de01
+
+2009-01-26 09:50:54.275 SLAPIN  dc 01 01 08 d9 bc 3f 4c 00 00 00 02 0c 01 01 00   ......?L........
+2009-01-26 09:50:54.275 SLAPIN  00 00 02 00                                       ....            
+
+2009-01-26 09:50:57.854 MGCPIN  44 4c 43 58 20 31 33 31 32 20 73 33 2f 64 73 31   DLCX 1312 s3/ds1
+2009-01-26 09:50:57.854 MGCPIN  2d 31 2f 31 39 40 74 33 63 6f 6d 2d 76 65 72 6c   -1/19@t3com-verl
+2009-01-26 09:50:57.854 MGCPIN  2d 64 65 30 31 20 4d 47 43 50 20 31 2e 30 0a 43   -de01 MGCP 1.0.C
+2009-01-26 09:50:57.854 MGCPIN  3a 20 38 34 0a 49 3a 20 32 0a 52 3a 20 20 0a 53   : 84.I: 2.R:  .S
+2009-01-26 09:50:57.854 MGCPIN  3a 20 20 0a 58 3a 20 35 31 46 0a                  :  .X: 51F.     
+
+2009-01-26 09:50:57.854 mgcp_read_pktin/750 Split packet: j 6 i 0 l 6
+2009-01-26 09:50:57.854 SLAPOUT dc 01 01 08 d9 bc 3f 4c 00 00 00 02 33 01 00 00   ......?L....3...
+2009-01-26 09:50:57.854 SLAPOUT 00 00 02 00                                       ....            
+
+2009-01-26 09:50:57.878 SLAPIN  dc 01 01 0f d9 bc 3f 4c 00 00 00 02 07 01 01 00   ......?L........
+2009-01-26 09:50:57.878 SLAPIN  00 00 02 07 00 08 04 80 80 00 90                  ...........     
+2009-01-26 09:50:57.878 slap_msg_process/606 Unknown SLAP Message 01 from gateways t3com-verl-de01
+
+*/
+
+static void slap_msg_recv_cc_dreq(struct gateway_s *gw, ss7_v2_header_t *hdr, slap_cc_t *cc) {
+	logwrite(LOG_DEBUG, "SLAP received CALL CONTROL SLAP_COMS_DISC_REQ");
+}
+
+
+static void slap_msg_recv_cc_cresp(struct gateway_s *gw, ss7_v2_header_t *hdr, slap_cc_t *cc) {
+	int		callid=cc->call_id_msb<<8|cc->call_id_lsb;
+
+	logwrite(LOG_ERROR, "SLAP received CALL CONTROL SLAP_COMS_CLEAR_RESP");
+
+	gw_slap_call_deny(gw, callid);
+}
+
+static void slap_msg_recv_cc_creq(struct gateway_s *gw, ss7_v2_header_t *hdr, slap_cc_t *cc) {
+	int		callid=cc->call_id_msb<<8|cc->call_id_lsb;
+	struct slapmsg_s	msg;
+
+	logwrite(LOG_DEBUG, "SLAP received CALL CONTROL SLAP_COMS_CONNECT_REQ");
+
+	/* This should trigger a "200 <msgid> MGCP 1.0" sent to the PGW */
+	gw_slap_call_proceed(gw, callid);
+
+	/* We acknowledge the packet to the HARC */
+	slap_msg_create_cc(&msg, SLAP_COMS_CONNECT_ACK, ntohl(hdr->location_id)+1, cc->ds1_id, callid);
+	slap_msg_cc_finish(&msg);
+	slap_send(gw, &msg);
+	slap_sendhb_extend(gw);
+}
+
+static void slap_msg_recv_cc(struct gateway_s *gw, ss7_v2_header_t *hdr) {
+	slap_cc_t	*cc=(slap_cc_t *) slap_msg_payloadptr(hdr);
+	int		callid=cc->call_id_msb<<8|cc->call_id_lsb;
+
+	switch(cc->msg_type) {
+		case(SLAP_COMS_CALL_PROC_REQ):
+			logwrite(LOG_DEBUG, "SLAP Received COMS_CALL_PROC_REQ");
+			break;
+		case(SLAP_COMS_CONNECT_REQ):
+			slap_msg_recv_cc_creq(gw, hdr, cc);
+			break;
+		case(SLAP_COMS_CLEAR_RESP):
+			slap_msg_recv_cc_cresp(gw, hdr, cc);
+			break;
+		case(SLAP_COMS_DISC_REQ):
+			slap_msg_recv_cc_dreq(gw, hdr, cc);
+			break;
+		default:
+			logwrite(LOG_DEBUG, "SLAP Received CC msg with unknown type 0x%02x", cc->msg_type);
+			break;
+	}
+}
 
 
 static void slap_msg_process(struct gateway_s *gw) {
@@ -600,6 +684,9 @@ static void slap_msg_process(struct gateway_s *gw) {
 			break;
 		case(SLAP_AC_REGISTER):
 			slap_msg_recv_register(gw, hdr);
+			break;
+		case(SLAP_AC_CALLCONTROL):
+			slap_msg_recv_cc(gw, hdr);
 			break;
 		default:
 			logwrite(LOG_ERROR, "Unknown SLAP Message %02x from gateways %s",
