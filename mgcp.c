@@ -597,8 +597,8 @@ void mgcp_call_drop_req(struct endpoint_s *ep, int connid) {
 	pkt->gw=gw;
 	pkt->type=PKT_TYPE_COMMAND;
 	pkt->verb=MGCP_VERB_DLCX;
-	g_string_printf(pkt->endpoint, "S%d/ds1-%d/%d", ep->slot+1, ep->span, ep->chan);
-	g_string_printf(pkt->body, "I: %d\n", connid);
+	g_string_printf(pkt->endpoint, "S%d/ds1-%d/%d", ep->slot, ep->span, ep->chan);
+	g_string_printf(pkt->body, "I: %x\n", connid);
 
 	mgcp_pkt_send(pkt);
 }
