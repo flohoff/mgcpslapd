@@ -112,6 +112,7 @@ static valstring localoption[] = {
 };
 
 static valstring bearertype[] = {
+	{ BT_UNKNOWN,	"unknown" },
 	{ BT_MODEM,	"modem" },
 	{ BT_DIGITAL,	"digital" },
 	{ 0, NULL },

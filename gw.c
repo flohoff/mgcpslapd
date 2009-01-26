@@ -149,6 +149,7 @@ int gw_mgcp_call_setup(struct endpoint_s *ep, int mgcpmsgid,
 	strncpy(call->bnumber, bnumber, NUMBER_MAX_SIZE);
 
 	call->callid=gw_callid_next(ep->gw);
+	call->bearertype=bearer;
 
 	/* Store msgid for later status response messages */
 	call->mgcpmsgid=mgcpmsgid;
@@ -156,7 +157,7 @@ int gw_mgcp_call_setup(struct endpoint_s *ep, int mgcpmsgid,
 	g_hash_table_insert(ep->gw->calltable, &call->callid, call);
 
 	slap_call_incoming(ep->gw, ep->slot, ep->span, ep->chan,
-		call->bearertype, call->anumber, call->bnumber, call->callid);
+		bearer, call->anumber, call->bnumber, call->callid);
 
 	return call->callid;
 }

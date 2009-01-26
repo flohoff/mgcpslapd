@@ -221,7 +221,11 @@ void slap_msg_cc_append_ie_bearer(struct slapmsg_s *msg, int bearer) {
 	p[1]=COMS_IE_BEARER_CAPABILITY;	/* Element ID */
 	p[2]=0x0a;				/* Length */
 	p[3]=0x80;				/* Coding Standard */
-	p[4]=COMS_BC_IXC_SPEECH;		/* Information transfer capability */
+	if (bearer == BT_MODEM) {
+		p[4]=COMS_BC_IXC_SPEECH;		/* Information transfer capability */
+	} else {
+		p[4]=COMS_BC_IXC_UNRESTDIG;		/* Information transfer capability */
+	}
 	p[5]=COMS_BC_XFERMODE_CIRCUIT;		/* Transfer Mode */
 	p[6]=COMS_BC_DATARATE_64K;		/* Transfer Rate */
 	p[7]=0x80;				/* Structure - unused */
