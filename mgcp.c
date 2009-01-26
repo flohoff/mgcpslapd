@@ -638,7 +638,25 @@ static void mgcp_process_auep(struct sepstr_s *lines, int verb, int msgid, struc
 	return;
 }
 
+static int mgcp_pkt_dupedetect(int msgid, struct endpoint_s *ep) {
+	struct mgcppkt_s	*pkt;
+
+	pkt=g_hash_table_lookup(sendpkttable, &msgid);
+
+	if (!pkt)
+		return 0;
+
+	logwrite(LOG_INFO, "MGCP Duplicate packet received for gateway %s msgid %d", ep->gw->name, msgid);
+
+	mgcp_pkt_send_pure(pkt);
+
+	return 1;
+}
 static void mgcp_cmdmsg_parse(struct sepstr_s *lines, int verb, int msgid, struct endpoint_s *ep) {
+
+	if (mgcp_pkt_dupedetect(msgid, ep))
+		return;
+
 	switch(verb) {
 		case(MGCP_VERB_AUEP):
 			mgcp_process_auep(lines, verb, msgid, ep);
