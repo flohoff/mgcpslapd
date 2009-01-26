@@ -148,6 +148,9 @@ int gw_mgcp_call_setup(struct endpoint_s *ep, int mgcpmsgid,
 
 	call->callid=gw_callid_next(ep->gw);
 
+	/* Store msgid for later status response messages */
+	call->mgcpmsgid=mgcpmsgid;
+
 	g_hash_table_insert(ep->gw->calltable, &call->callid, call);
 
 	slap_call_incoming(ep->gw, ep->slot, ep->span, ep->chan,
@@ -157,11 +160,33 @@ int gw_mgcp_call_setup(struct endpoint_s *ep, int mgcpmsgid,
 }
 
 void gw_slap_call_deny(struct gateway_s *gw, int callid) {
-	logwrite(LOG_ERROR, "Call deny from SLAP");
+	struct call_s	*call;
+
+	logwrite(LOG_ERROR, "Call deny from SLAP - callid %d gw %s", callid, gw->name);
+
+	call=g_hash_table_lookup(gw->calltable, &callid);
+
+	if (!call) {
+		logwrite(LOG_ERROR, "Unknown callid in deny from SLAP - callid %d gw %s", callid, gw->name);
+		return;
+	}
+
+	mgcp_call_deny(&call->ep, call->mgcpmsgid, callid);
 }
 
 void gw_slap_call_proceed(struct gateway_s *gw, int callid) {
-	logwrite(LOG_DEBUG, "Call proceed from SLAP");
+	struct call_s	*call;
+
+	logwrite(LOG_DEBUG, "Call proceed from SLAP - callid %d gw %s", callid, gw->name);
+
+	call=g_hash_table_lookup(gw->calltable, &callid);
+
+	if (!call) {
+		logwrite(LOG_ERROR, "Unknown callid in proceed from SLAP - callid %d gw %s", callid, gw->name);
+		return;
+	}
+
+	mgcp_call_proceed(&call->ep, call->mgcpmsgid, callid);
 }
 
 struct gateway_s *gw_lookup(char *name) {

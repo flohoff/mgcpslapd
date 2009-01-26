@@ -579,11 +579,25 @@ static void mgcp_process_dlcx(struct sepstr_s *lines, int verb, int msgid, struc
 	gw_mgcp_call_drop(ep, msgid, connid);
 }
 
+static void mgcp_send_response_with_connid(struct gateway_s *gw, int result, int msgid, char *resultstring, int connid) {
+	char	connidstr[64];
+	sprintf(connidstr, "I: %x", connid);
+
+	mgcp_send_response(gw, result, msgid, resultstring, connidstr);
+}
+
+void mgcp_call_proceed(struct endpoint_s *ep, int msgid, int connid) {
+	mgcp_send_response_with_connid(ep->gw, 200, msgid, "ok", connid);
+}
+
+void mgcp_call_deny(struct endpoint_s *ep, int msgid, int connid) {
+	mgcp_send_response_with_connid(ep->gw, 403, msgid, "endpoint denied call setup", connid);
+}
+
 static void mgcp_process_crcx(struct sepstr_s *lines, int verb, int msgid, struct endpoint_s *ep) {
 	struct localconnect_s	lc;
 	struct sepstr_s		*local;
 	int			connid;
-	char			connidstr[64];
 
 	local=mgcp_line_find(lines, "L:");
 
@@ -608,9 +622,7 @@ static void mgcp_process_crcx(struct sepstr_s *lines, int verb, int msgid, struc
 		return;
 	}
 
-	sprintf(connidstr, "I: %x", connid);
-
-	mgcp_send_response(ep->gw, 200, msgid, "ok", connidstr);
+	mgcp_send_response_with_connid(ep->gw, 100, msgid, "signalling gateway", connid);
 }
 
 void mgcp_send_busy(struct endpoint_s *ep, int msgid) {
@@ -652,6 +664,7 @@ static int mgcp_pkt_dupedetect(int msgid, struct endpoint_s *ep) {
 
 	return 1;
 }
+
 static void mgcp_cmdmsg_parse(struct sepstr_s *lines, int verb, int msgid, struct endpoint_s *ep) {
 
 	if (mgcp_pkt_dupedetect(msgid, ep))

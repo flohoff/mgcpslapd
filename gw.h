@@ -133,6 +133,7 @@ struct call_s {
 	char			bnumber[NUMBER_MAX_SIZE];
 
 	int			callid;		/* SLAP call id / MGCP ConnectionID */
+	int			mgcpmsgid;	/* MGCP Call setup msgid */
 
 	struct endpoint_s	ep;
 	struct ds0_s		*ds0;
