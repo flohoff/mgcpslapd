@@ -8,10 +8,14 @@ all: mgcpslapd
 mgcpslapd: $(OBJ-mgcpslapd)
 	gcc $(LDFLAGS) -o $@ $+
 
+tags:
+	ctags *.c *.h	
+
 clean:
 	-rm -f $(OBJ-mgcpslapd)
 	-rm -f mgcpslapd
 	-rm -f core vgcore.pid* core.* gmon.out
+	-rm -f tags
 
 distclean: clean
 	-rm -rf CVS .cvsignore
