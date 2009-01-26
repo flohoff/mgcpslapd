@@ -577,22 +577,19 @@ static void slap_msg_recv_event(struct gateway_s *gw, ss7_v2_header_t *hdr) {
    2009-01-21 14:01:56.190 SLAPIN  00 00 00 00 00 00 00 00 00 7a 01 1f               .........z..    
  */
 
-static void slap_msg_recv_cc_dreq(struct gateway_s *gw, ss7_v2_header_t *hdr, slap_cc_t *cc) {
-	int		callid=cc->call_id_msb<<8|cc->call_id_lsb;
+static void slap_msg_recv_cc_dreq(struct gateway_s *gw, int callid) {
 	logwrite(LOG_DEBUG, "SLAP received CALL CONTROL SLAP_COMS_DISC_REQ callid %d gw %s", callid, gw->name);
 
 	gw_slap_call_drop_req(gw, callid);
 }
 
-static void slap_msg_recv_cc_cresp(struct gateway_s *gw, ss7_v2_header_t *hdr, slap_cc_t *cc) {
-	int		callid=cc->call_id_msb<<8|cc->call_id_lsb;
+static void slap_msg_recv_cc_cresp(struct gateway_s *gw, int callid) {
 	logwrite(LOG_DEBUG, "SLAP received CALL CONTROL SLAP_COMS_CLEAR_RESP callid %d gw %s", callid, gw->name);
 
 	gw_slap_call_deny(gw, callid);
 }
 
-static void slap_msg_recv_cc_clearreq(struct gateway_s *gw, ss7_v2_header_t *hdr, slap_cc_t *cc) {
-	int			callid=cc->call_id_msb<<8|cc->call_id_lsb;
+static void slap_msg_recv_cc_clearreq(struct gateway_s *gw, ss7_v2_header_t *hdr, slap_cc_t *cc, int callid) {
 	struct slapmsg_s	msg;
 
 	logwrite(LOG_DEBUG, "SLAP received CALL CONTROL SLAP_COMS_CLEAR_REQ for callid %d gw %s", callid, gw->name);
@@ -606,8 +603,7 @@ static void slap_msg_recv_cc_clearreq(struct gateway_s *gw, ss7_v2_header_t *hdr
 	gw_slap_call_drop_ack(gw, callid);
 }
 
-static void slap_msg_recv_cc_connreq(struct gateway_s *gw, ss7_v2_header_t *hdr, slap_cc_t *cc) {
-	int			callid=cc->call_id_msb<<8|cc->call_id_lsb;
+static void slap_msg_recv_cc_connreq(struct gateway_s *gw, ss7_v2_header_t *hdr, slap_cc_t *cc, int callid) {
 	struct slapmsg_s	msg;
 
 	logwrite(LOG_DEBUG, "SLAP received CALL CONTROL SLAP_COMS_CONNECT_REQ for callid %d gw %s", callid, gw->name);
@@ -631,16 +627,16 @@ static void slap_msg_recv_cc(struct gateway_s *gw, ss7_v2_header_t *hdr) {
 			logwrite(LOG_DEBUG, "SLAP Received COMS_CALL_PROC_REQ");
 			break;
 		case(SLAP_COMS_CONNECT_REQ):
-			slap_msg_recv_cc_connreq(gw, hdr, cc);
+			slap_msg_recv_cc_connreq(gw, hdr, cc, callid);
 			break;
 		case(SLAP_COMS_CLEAR_RESP):
-			slap_msg_recv_cc_cresp(gw, hdr, cc);
+			slap_msg_recv_cc_cresp(gw, callid);
 			break;
 		case(SLAP_COMS_DISC_REQ):
-			slap_msg_recv_cc_dreq(gw, hdr, cc);
+			slap_msg_recv_cc_dreq(gw, callid);
 			break;
 		case(SLAP_COMS_CLEAR_REQ):
-			slap_msg_recv_cc_clearreq(gw, hdr, cc);
+			slap_msg_recv_cc_clearreq(gw, hdr, cc, callid);
 			break;
 		default:
 			logwrite(LOG_DEBUG, "SLAP Received CC msg with unknown type 0x%02x", cc->msg_type);
@@ -710,7 +706,7 @@ static void slap_read(struct gateway_s *gw, int fd) {
 		slap_msg_process(gw);
 }
 
-int slap_call_drop(struct gateway_s *gw, int slot, int span, int chan, int callid) {
+void slap_call_drop(struct gateway_s *gw, int slot, int span, int chan, int callid) {
 	struct slapmsg_s	slapmsg;
 
 	slap_msg_create_cc(&slapmsg, SLAP_COMS_DISC_IND, slot, span, callid);

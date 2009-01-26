@@ -93,6 +93,6 @@ void slap_init_gateway(struct gateway_s *);
 int slap_callid_next(struct gateway_s *);
 int slap_call_incoming(struct gateway_s *, int slot, int span, int chan,
 			int bearer, char *anumber, char *number, int callid);
-int slap_call_drop(struct gateway_s *, int slot, int span, int chan, int callid);
+void slap_call_drop(struct gateway_s *, int slot, int span, int chan, int callid);
 
 #endif
