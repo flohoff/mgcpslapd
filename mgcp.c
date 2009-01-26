@@ -99,6 +99,7 @@ enum {
 	MGCP_L_NASBT,
 	MGCP_L_NASCDN,
 	MGCP_L_NASCGN,
+	MGCP_L_BANDWIDTH,
 };
 
 static valstring localoption[] = {
@@ -106,6 +107,7 @@ static valstring localoption[] = {
 	{ MGCP_L_NASBT,		"nas/bt" },
 	{ MGCP_L_NASCDN,	"nas/cdn" },
 	{ MGCP_L_NASCGN,	"nas/cgn" },
+	{ MGCP_L_BANDWIDTH,	"b" },
 	{ 0, NULL },
 };
 
@@ -540,6 +542,8 @@ static int mgcp_parse_localconnect(struct sepstr_s *local, struct localconnect_s
 				break;
 			case(MGCP_L_NASCGN):
 				lc->anumber=lc->tv[i].value;
+				break;
+			case(MGCP_L_BANDWIDTH):
 				break;
 		}
 	}
