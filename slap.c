@@ -578,13 +578,15 @@ static void slap_msg_recv_event(struct gateway_s *gw, ss7_v2_header_t *hdr) {
  */
 
 static void slap_msg_recv_cc_dreq(struct gateway_s *gw, ss7_v2_header_t *hdr, slap_cc_t *cc) {
-	logwrite(LOG_DEBUG, "SLAP received CALL CONTROL SLAP_COMS_DISC_REQ");
+	int		callid=cc->call_id_msb<<8|cc->call_id_lsb;
+	logwrite(LOG_DEBUG, "SLAP received CALL CONTROL SLAP_COMS_DISC_REQ callid %d gw %s", callid, gw->name);
+
+	gw_slap_call_drop_req(gw, callid);
 }
 
 static void slap_msg_recv_cc_cresp(struct gateway_s *gw, ss7_v2_header_t *hdr, slap_cc_t *cc) {
 	int		callid=cc->call_id_msb<<8|cc->call_id_lsb;
-
-	logwrite(LOG_ERROR, "SLAP received CALL CONTROL SLAP_COMS_CLEAR_RESP");
+	logwrite(LOG_DEBUG, "SLAP received CALL CONTROL SLAP_COMS_CLEAR_RESP callid %d gw %s", callid, gw->name);
 
 	gw_slap_call_deny(gw, callid);
 }
@@ -601,7 +603,7 @@ static void slap_msg_recv_cc_clearreq(struct gateway_s *gw, ss7_v2_header_t *hdr
 	slap_send(gw, &msg);
 	slap_sendhb_extend(gw);
 
-	gw_slap_call_dropack(gw, callid);
+	gw_slap_call_drop_ack(gw, callid);
 }
 
 static void slap_msg_recv_cc_connreq(struct gateway_s *gw, ss7_v2_header_t *hdr, slap_cc_t *cc) {

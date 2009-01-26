@@ -151,8 +151,10 @@ void gw_ds0_set_status(struct gateway_s *gw, int slot, int span, int chan, int s
 void gw_slot_set_status(struct gateway_s *gw, int slot, int status);
 int gw_mgcp_call_setup(struct endpoint_s *ep, int mgcpmsgid, char *anumber, char *bnumber, int bearer);
 void gw_mgcp_call_drop(struct endpoint_s *ep, int mgcpmsgid, int connid);
+
 void gw_slap_call_proceed(struct gateway_s *gw, int callid);
 void gw_slap_call_deny(struct gateway_s *gw, int callid);
-void gw_slap_call_dropack(struct gateway_s *gw, int callid);
+void gw_slap_call_drop_ack(struct gateway_s *gw, int callid);
+void gw_slap_call_drop_req(struct gateway_s *gw, int callid);
 
 #endif

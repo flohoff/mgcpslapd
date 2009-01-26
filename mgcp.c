@@ -588,7 +588,22 @@ static void mgcp_send_response_with_connid(struct gateway_s *gw, int result, int
 	mgcp_send_response(gw, result, msgid, resultstring, connidstr);
 }
 
-void mgcp_call_dropack(struct endpoint_s *ep, int msgid, int connid) {
+void mgcp_call_drop_req(struct endpoint_s *ep, int connid) {
+	struct mgcppkt_s	*pkt;
+	struct gateway_s	*gw=ep->gw;
+
+	pkt=mgcp_pkt_get();
+
+	pkt->gw=gw;
+	pkt->type=PKT_TYPE_COMMAND;
+	pkt->verb=MGCP_VERB_DLCX;
+	g_string_printf(pkt->endpoint, "S%d/ds1-%d/%d", ep->slot+1, ep->span, ep->chan);
+	g_string_printf(pkt->body, "I: %d\n", connid);
+
+	mgcp_pkt_send(pkt);
+}
+
+void mgcp_call_drop_ack(struct endpoint_s *ep, int msgid, int connid) {
 	mgcp_send_response(ep->gw, 200, msgid, "dropped", NULL);
 }
 

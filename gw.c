@@ -161,6 +161,21 @@ int gw_mgcp_call_setup(struct endpoint_s *ep, int mgcpmsgid,
 	return call->callid;
 }
 
+void gw_slap_call_drop_req(struct gateway_s *gw, int callid) {
+	struct call_s	*call;
+
+	logwrite(LOG_ERROR, "Call drop from SLAP - callid %d gw %s", callid, gw->name);
+
+	call=g_hash_table_lookup(gw->calltable, &callid);
+
+	if (!call) {
+		logwrite(LOG_ERROR, "Unknown callid in deny from SLAP - callid %d gw %s", callid, gw->name);
+		return;
+	}
+
+	mgcp_call_drop_req(&call->ep, callid);
+}
+
 void gw_slap_call_deny(struct gateway_s *gw, int callid) {
 	struct call_s	*call;
 
@@ -176,7 +191,7 @@ void gw_slap_call_deny(struct gateway_s *gw, int callid) {
 	mgcp_call_deny(&call->ep, call->mgcpmsgid, callid);
 }
 
-void gw_slap_call_dropack(struct gateway_s *gw, int callid) {
+void gw_slap_call_drop_ack(struct gateway_s *gw, int callid) {
 	struct call_s	*call;
 
 	logwrite(LOG_DEBUG, "Call drop ack from SLAP - callid %d gw %s", callid, gw->name);
@@ -188,7 +203,7 @@ void gw_slap_call_dropack(struct gateway_s *gw, int callid) {
 		return;
 	}
 
-	mgcp_call_dropack(&call->ep, call->mgcpmsgid, callid);
+	mgcp_call_drop_ack(&call->ep, call->mgcpmsgid, callid);
 }
 
 
