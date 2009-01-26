@@ -435,6 +435,8 @@ static int mgcp_endpoint_status(struct endpoint_s *ep) {
 	if (!ep->gw)
 		return MGCP_EP_UNKNOWN;
 
+	/* FIXME - dont answer AUEPs if gateway not connected */
+
 	return MGCP_EP_AVAIL;
 }
  /*
@@ -584,6 +586,10 @@ static void mgcp_send_response_with_connid(struct gateway_s *gw, int result, int
 	sprintf(connidstr, "I: %x", connid);
 
 	mgcp_send_response(gw, result, msgid, resultstring, connidstr);
+}
+
+void mgcp_call_dropack(struct endpoint_s *ep, int msgid, int connid) {
+	mgcp_send_response(ep->gw, 200, msgid, "dropped", NULL);
 }
 
 void mgcp_call_proceed(struct endpoint_s *ep, int msgid, int connid) {
@@ -759,8 +765,6 @@ static void mgcp_read_pktin(char *buffer, int len, struct sockaddr_in *sin) {
 		for(;i<l;i++)
 			if (lines[i].len == 1 && *lines[i].ptr == '.')
 				break;
-
-		logwrite(LOG_DEBUG, "Split packet: j %d i %d l %d", i, j, l);
 
 		mgcp_msg_process(&lines[j], i-j, sin);
 	}

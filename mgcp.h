@@ -13,3 +13,4 @@ void mgcp_send_busy(struct endpoint_s *ep, int msgid);
 
 void mgcp_call_proceed(struct endpoint_s *ep, int msgid, int connid);
 void mgcp_call_deny(struct endpoint_s *ep, int msgid, int connid);
+void mgcp_call_dropack(struct endpoint_s *ep, int msgid, int connid);
