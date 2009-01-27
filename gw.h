@@ -156,6 +156,7 @@ int gw_init(void );
 struct gateway_s *gw_lookup(char *);
 struct gateway_s *gw_lookup_or_create(char *);
 void gw_set_status(struct gateway_s *gw, int status);
+int gw_connected(struct gateway_s *gw);
 
 void gw_slot_create(struct gateway_s *gw, int slot);
 void gw_slot_set_status(struct gateway_s *gw, int slot, int status);

@@ -304,7 +304,6 @@ static void mgcp_pkt_deltimer_start(struct mgcppkt_s *pkt) {
 	evtimer_add(&pkt->timer, &pkt->tv);
 }
 
-
 static void mgcp_pkt_retransmit(int fd, short event, void *arg) {
 	struct mgcppkt_s	*pkt=arg;
 
@@ -714,6 +713,11 @@ static void mgcp_cmdmsg_parse(struct sepstr_s *lines, int verb, int msgid, struc
 
 	if (mgcp_pkt_dupedetect(msgid, ep))
 		return;
+
+	if (!gw_connected(ep->gw)) {
+		mgcp_send_response(ep->gw, 405, msgid, "SLAP not connected for gateway", NULL);
+		return;
+	}
 
 	switch(verb) {
 		case(MGCP_VERB_AUEP):

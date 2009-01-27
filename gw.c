@@ -112,6 +112,10 @@ void gw_set_status(struct gateway_s *gw, int status) {
 	gw->status=status;
 }
 
+int gw_connected(struct gateway_s *gw) {
+	return (gw->status == GW_STATUS_AVAIL);
+}
+
 int gw_ds0_idle(struct ds0_s *ds0) {
 	return (ds0->status == DS0_IDLE);
 }
