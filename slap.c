@@ -268,6 +268,48 @@ void slap_msg_cc_append_ie_channelid(struct slapmsg_s *msg, int channel) {
 	msg->len+=12+3;
 }
 
+void slap_msg_cc_append_ie_callingnum(struct slapmsg_s *msg, char *number) {
+	char		*p=msg->buffer+msg->len;
+	int		len=strlen(number);
+
+#define COMS_IE_CALLING_NUMBER		0x6c
+#define COMS_CALLING_NUMTYPE_UNKNOWN	0x80
+#define COMS_CALLING_NUMPLAN_UNKNOWN	0x80
+
+	p[0]=0x0;				/* Reserved */
+	p[1]=COMS_IE_CALLING_NUMBER;		/* IE Type */
+	p[2]=len+4;				/* Length */
+	p[3]=COMS_CALLING_NUMTYPE_UNKNOWN;	/* Type of Number */
+	p[4]=COMS_CALLING_NUMPLAN_UNKNOWN;	/* Numbering plan */
+	p[5]=0x0;				/* Presentation indicator */
+	p[6]=0x81;				/* Screening indicator */
+
+	/* Copy number */
+	strncpy(&p[7], number, len);
+
+	msg->len+=len+4+3;
+}
+
+void slap_msg_cc_append_ie_callednum(struct slapmsg_s *msg, char *number) {
+	char		*p=msg->buffer+msg->len;
+	int		len=strlen(number);
+
+#define COMS_IE_CALLED_NUMBER		0x70
+#define COMS_CALLED_NUMTYPE_UNKNOWN	0x80
+#define COMS_CALLED_NUMPLAN_UNKNOWN	0x80
+
+	p[0]=0x0;				/* Reserved */
+	p[1]=COMS_IE_CALLED_NUMBER;		/* IE Type */
+	p[2]=len+2;				/* Length */
+	p[3]=COMS_CALLED_NUMTYPE_UNKNOWN;	/* Type of Number */
+	p[4]=COMS_CALLED_NUMPLAN_UNKNOWN;	/* Numbering plan */
+
+	/* Copy number */
+	strncpy(&p[5], number, len);
+
+	msg->len+=len+2+3;
+}
+
 
 /*
    0000011A  dc 01 01 3c 3e 35 f7 05  00 00 00 01 1b 00 01 00 ...<>5.. ........ 
@@ -728,12 +770,14 @@ void slap_call_drop(struct gateway_s *gw, int slot, int span, int chan, int call
 }
 
 int slap_call_incoming(struct gateway_s *gw, int slot, int span, int chan,
-		int bearer, char *anumber, char *number, int callid) {
+		int bearer, char *anumber, char *bnumber, int callid) {
 	struct slapmsg_s	slapmsg;
 
 	slap_msg_create_cc(&slapmsg, SLAP_COMS_SETUP_IND, slot, span, callid);
 	slap_msg_cc_append_ie_bearer(&slapmsg, bearer);
 	slap_msg_cc_append_ie_channelid(&slapmsg, chan);
+	slap_msg_cc_append_ie_callingnum(&slapmsg, anumber);
+	slap_msg_cc_append_ie_callednum(&slapmsg, bnumber);
 
 	slap_msg_cc_finish(&slapmsg);
 
