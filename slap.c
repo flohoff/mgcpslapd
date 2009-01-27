@@ -635,8 +635,10 @@ static void slap_msg_recv_event(struct gateway_s *gw, ss7_v2_header_t *hdr) {
 void slap_call_drop_ack(struct gateway_s *gw, int slot, int span, int chan, int callid) {
 	struct slapmsg_s	msg;
 
+	logwrite(LOG_DEBUG, "SLAP sending CC SLAP_COMS_CLEAR_CONF callid %d gw %s", callid, gw->name);
+
 	/* We acknowledge the packet to the HARC */
-	slap_msg_create_cc(&msg, SLAP_COMS_CLEAR_CONF, slot-1, span, callid);
+	slap_msg_create_cc(&msg, SLAP_COMS_CLEAR_CONF, slot, span, callid);
 	slap_msg_cc_finish(&msg);
 
 	slap_send(gw, &msg);
@@ -645,21 +647,17 @@ void slap_call_drop_ack(struct gateway_s *gw, int slot, int span, int chan, int 
 }
 
 static void slap_msg_recv_cc_dreq(struct gateway_s *gw, int callid) {
-	logwrite(LOG_DEBUG, "SLAP received CC SLAP_COMS_DISC_REQ callid %d gw %s", callid, gw->name);
-
 	gw_slap_call_drop_req(gw, callid);
 }
 
 static void slap_msg_recv_cc_cresp(struct gateway_s *gw, int callid) {
-	logwrite(LOG_DEBUG, "SLAP received CC SLAP_COMS_CLEAR_RESP callid %d gw %s", callid, gw->name);
-
 	gw_slap_call_deny(gw, callid);
 }
 
 static void slap_msg_recv_cc_clearreq(struct gateway_s *gw, ss7_v2_header_t *hdr, slap_cc_t *cc, int callid) {
 	struct slapmsg_s	msg;
 
-	logwrite(LOG_DEBUG, "SLAP received CC SLAP_COMS_CLEAR_REQ for callid %d gw %s", callid, gw->name);
+	logwrite(LOG_DEBUG, "SLAP sending CC SLAP_COMS_CLEAR_CONF for callid %d gw %s", callid, gw->name);
 
 	/* We acknowledge the packet to the HARC */
 	slap_msg_create_cc(&msg, SLAP_COMS_CLEAR_CONF, ntohl(hdr->location_id)+1, cc->ds1_id, callid);
@@ -673,10 +671,10 @@ static void slap_msg_recv_cc_clearreq(struct gateway_s *gw, ss7_v2_header_t *hdr
 static void slap_msg_recv_cc_connreq(struct gateway_s *gw, ss7_v2_header_t *hdr, slap_cc_t *cc, int callid) {
 	struct slapmsg_s	msg;
 
-	logwrite(LOG_DEBUG, "SLAP received SLAP_COMS_CONNECT_REQ for callid %d gw %s", callid, gw->name);
-
 	/* This should trigger a "200 <msgid> MGCP 1.0" sent to the PGW */
 	gw_slap_call_proceed(gw, callid);
+
+	logwrite(LOG_DEBUG, "SLAP sending SLAP_COMS_CONNECT_ACK for callid %d gw %s", callid, gw->name);
 
 	/* We acknowledge the packet to the HARC */
 	slap_msg_create_cc(&msg, SLAP_COMS_CONNECT_ACK, ntohl(hdr->location_id)+1, cc->ds1_id, callid);
@@ -694,15 +692,19 @@ static void slap_msg_recv_cc(struct gateway_s *gw, ss7_v2_header_t *hdr) {
 			logwrite(LOG_DEBUG, "SLAP Received COMS_CALL_PROC_REQ");
 			break;
 		case(SLAP_COMS_CONNECT_REQ):
+			logwrite(LOG_DEBUG, "SLAP received SLAP_COMS_CONNECT_REQ for callid %d gw %s", callid, gw->name);
 			slap_msg_recv_cc_connreq(gw, hdr, cc, callid);
 			break;
 		case(SLAP_COMS_CLEAR_RESP):
+			logwrite(LOG_DEBUG, "SLAP received CC SLAP_COMS_CLEAR_RESP callid %d gw %s", callid, gw->name);
 			slap_msg_recv_cc_cresp(gw, callid);
 			break;
 		case(SLAP_COMS_DISC_REQ):
+			logwrite(LOG_DEBUG, "SLAP received CC SLAP_COMS_DISC_REQ callid %d gw %s", callid, gw->name);
 			slap_msg_recv_cc_dreq(gw, callid);
 			break;
 		case(SLAP_COMS_CLEAR_REQ):
+			logwrite(LOG_DEBUG, "SLAP received CC SLAP_COMS_CLEAR_REQ for callid %d gw %s", callid, gw->name);
 			slap_msg_recv_cc_clearreq(gw, hdr, cc, callid);
 			break;
 		default:
