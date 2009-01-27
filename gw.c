@@ -188,6 +188,7 @@ void gw_slap_call_drop_ack(struct gateway_s *gw, int callid) {
 	call->ds0->status=DS0_IDLE;
 
 	gw_call_deltimer_start(call);
+	call->ds0->call=NULL;
 }
 
 void gw_mgcp_call_drop_ack(struct gateway_s *gw, int connid) {
@@ -205,6 +206,7 @@ void gw_mgcp_call_drop_ack(struct gateway_s *gw, int connid) {
 	call->ds0->status=DS0_IDLE;
 
 	gw_call_deltimer_start(call);
+	call->ds0->call=NULL;
 }
 
 void gw_mgcp_call_drop_req(struct endpoint_s *ep, int mgcpmsgid, int connid) {
@@ -312,6 +314,7 @@ void gw_slap_call_deny(struct gateway_s *gw, int callid) {
 	call->ds0->status=DS0_IDLE;
 
 	gw_call_deltimer_start(call);
+	call->ds0->call=NULL;
 }
 
 
