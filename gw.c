@@ -153,7 +153,50 @@ void gw_call_deltimer_start(struct call_s *call) {
 	call->tv.tv_sec=CALL_TIMER_DEL;
 	call->tv.tv_usec=0;
 
+	evtimer_del(&call->timer);
 	evtimer_set(&call->timer, &gw_call_delete, call);
+	evtimer_add(&call->timer, &call->tv);
+}
+
+
+static void gw_call_drop(int fd, short event, void *arg) {
+	struct call_s	*call=arg;
+
+	switch(call->status) {
+		case(CALL_IDLE):
+			/* If the call went idle something weird happend. We should
+			   not trigger as the idle setting process should cancel this
+			   timer and schedule a droptimer
+			 */
+			logwrite(LOG_ERROR, "droptimer triggered - call was idle gw %s callid %d",
+					call->ep.gw->name, call->callid);
+
+			gw_call_deltimer_start(call);
+			break;
+		case(CALL_DROP_WAIT_MGCP):
+			/* We simply reset the state - SLAP took care for itself */
+			logwrite(LOG_ERROR, "droptimer triggered waiting for MGCP - gw %s callid %d",
+					call->ep.gw->name, call->callid);
+			gw_mgcp_call_drop_ack(call->ep.gw, call->callid);
+			break;
+		case(CALL_DROP_WAIT_SLAP):
+			/* We send out an 200 dropped to MGCP and hope SLAP has just forgotten
+			   to send us a message.
+			 */
+			logwrite(LOG_ERROR, "droptimer triggered waiting for SLAP - gw %s callid %d",
+					call->ep.gw->name, call->callid);
+			gw_slap_call_drop_ack(call->ep.gw, call->callid);
+			break;
+	}
+}
+
+
+void gw_call_droptimer_start(struct call_s *call) {
+	call->tv.tv_sec=CALL_TIMER_DROP;
+	call->tv.tv_usec=0;
+
+	evtimer_del(&call->timer);
+	evtimer_set(&call->timer, &gw_call_drop, call);
 	evtimer_add(&call->timer, &call->tv);
 }
 
@@ -169,9 +212,11 @@ void gw_slap_call_drop_req(struct gateway_s *gw, int callid) {
 		return;
 	}
 
-	call->status=CALL_DROP;
+	call->status=CALL_DROP_WAIT_MGCP;
 
 	mgcp_call_drop_req(&call->ep, callid);
+
+	gw_call_droptimer_start(call);
 }
 
 void gw_slap_call_drop_ack(struct gateway_s *gw, int callid) {
@@ -243,9 +288,11 @@ void gw_mgcp_call_drop_req(struct endpoint_s *ep, int mgcpmsgid, int connid) {
 
 	call->mgcpmsgid=mgcpmsgid;
 
-	call->status=CALL_DROP;
+	call->status=CALL_DROP_WAIT_SLAP;
 
 	slap_call_drop(call->ep.gw, call->ep.slot, call->ep.span, call->ep.chan, call->callid);
+
+	gw_call_droptimer_start(call);
 }
 
 void gw_slap_call_proceed(struct gateway_s *gw, int callid) {

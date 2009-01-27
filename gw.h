@@ -22,6 +22,7 @@
 #define NUMBER_MAX_SIZE		20
 
 #define CALL_TIMER_DEL		30
+#define CALL_TIMER_DROP		5
 
 enum {
 	DS1_STATUS_UNKNOWN = 0,
@@ -50,7 +51,8 @@ enum {
 	CALL_IDLE,
 	CALL_INCOMING,
 	CALL_ESTABLISHED,
-	CALL_DROP,
+	CALL_DROP_WAIT_MGCP,
+	CALL_DROP_WAIT_SLAP,
 };
 
 struct call_s;
