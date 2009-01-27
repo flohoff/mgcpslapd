@@ -627,7 +627,7 @@ void mgcp_call_drop_req(struct endpoint_s *ep, int connid) {
 }
 
 void mgcp_call_drop_ack(struct endpoint_s *ep, int msgid, int connid) {
-	mgcp_send_response(ep->gw, 200, msgid, "dropped", NULL);
+	mgcp_send_response(ep->gw, 250, msgid, "dropped", NULL);
 }
 
 void mgcp_call_proceed(struct endpoint_s *ep, int msgid, int connid) {
@@ -635,7 +635,7 @@ void mgcp_call_proceed(struct endpoint_s *ep, int msgid, int connid) {
 }
 
 void mgcp_call_deny(struct endpoint_s *ep, int msgid, int connid) {
-	mgcp_send_response_with_connid(ep->gw, 403, msgid, "endpoint denied call setup", connid);
+	mgcp_send_response(ep->gw, 403, msgid, "endpoint denied call setup", NULL);
 }
 
 static void mgcp_process_crcx(struct sepstr_s *lines, int verb, int msgid, struct endpoint_s *ep) {
