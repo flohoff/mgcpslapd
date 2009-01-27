@@ -579,16 +579,15 @@ static void mgcp_send_response(struct gateway_s *gw, int result, int msgid, char
 
 static void mgcp_process_dlcx(struct sepstr_s *lines, int verb, int msgid, struct endpoint_s *ep) {
 	struct sepstr_s	*connidline;
-	int		connid;
+	int		connid=0;
 
 	connidline=mgcp_line_find(lines, "I:");
 
 	if (!connidline) {
 		logwrite(LOG_ERROR, "DLCX without an ConnectionId for %s", ep->gw->name);
-		return;
+	} else {
+		connid=strtol(connidline->ptr+3, NULL, 16);
 	}
-
-	connid=strtol(connidline->ptr+3, NULL, 16);
 
 	gw_mgcp_call_drop_req(ep, msgid, connid);
 }

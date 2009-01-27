@@ -186,11 +186,29 @@ void gw_mgcp_call_drop_ack(struct gateway_s *gw, int connid) {
 void gw_mgcp_call_drop_req(struct endpoint_s *ep, int mgcpmsgid, int connid) {
 	struct call_s	*call;
 
-	call=g_hash_table_lookup(ep->gw->calltable, &connid);
+	if (connid) {
+		call=g_hash_table_lookup(ep->gw->calltable, &connid);
 
-	if (!call) {
-		logwrite(LOG_ERROR, "Could not find ConnectionID %x from %s", connid, ep->gw->name);
-		return;
+		if (!call) {
+			logwrite(LOG_ERROR, "Could not find ConnectionID %x from %s", connid, ep->gw->name);
+			return;
+		}
+	} else {
+		struct ds0_s *ds0;
+		ds0=gw_ds0_get(ep->gw, ep->slot, ep->span, ep->chan);
+
+		if (!ds0) {
+			logwrite(LOG_ERROR, "Could not find DS0 from endpoint %s %d %d %d",
+				ep->gw->name, ep->slot, ep->span, ep->chan);
+			return;
+		}
+		if (!ds0->call) {
+			logwrite(LOG_ERROR, "No call on DS0 from endpoint %s %d %d %d",
+				ep->gw->name, ep->slot, ep->span, ep->chan);
+			return;
+
+		}
+		call=ds0->call;
 	}
 
 	call->mgcpmsgid=mgcpmsgid;
