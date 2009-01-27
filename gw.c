@@ -276,6 +276,10 @@ void gw_mgcp_call_drop_req(struct endpoint_s *ep, int mgcpmsgid, int connid) {
 
 		if (!call) {
 			logwrite(LOG_ERROR, "Could not find ConnectionID %x from %s", connid, ep->gw->name);
+
+			/* We dont even know this endpoint - simply acknowledge */
+			mgcp_call_drop_ack(ep, mgcpmsgid, connid);
+
 			return;
 		}
 	} else {
@@ -285,11 +289,19 @@ void gw_mgcp_call_drop_req(struct endpoint_s *ep, int mgcpmsgid, int connid) {
 		if (!ds0) {
 			logwrite(LOG_ERROR, "Could not find DS0 from endpoint %s %d %d %d",
 				ep->gw->name, ep->slot, ep->span, ep->chan);
+
+			/* We dont even know this endpoint - simply acknowledge */
+			mgcp_call_drop_ack(ep, mgcpmsgid, connid);
+
 			return;
 		}
 		if (!ds0->call) {
 			logwrite(LOG_ERROR, "No call on DS0 from endpoint %s %d %d %d",
 				ep->gw->name, ep->slot, ep->span, ep->chan);
+
+			/* No call - simply acknowledge */
+			mgcp_call_drop_ack(ep, mgcpmsgid, connid);
+
 			return;
 
 		}
