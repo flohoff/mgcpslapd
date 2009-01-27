@@ -28,10 +28,9 @@ enum {
 };
 
 enum {
-	DS0_STATUS_UNKNOWN = 0,
-	DS0_STATUS_IDLE,
-	DS0_STATUS_INCOMING,
-	DS0_STATUS_BUSY,
+	DS0_UNKNOWN = 0,
+	DS0_IDLE,
+	DS0_BUSY,
 };
 
 enum {
@@ -43,6 +42,13 @@ enum {
 	BT_UNKNOWN = 0,
 	BT_MODEM,
 	BT_DIGITAL,
+};
+
+enum {
+	CALL_IDLE,
+	CALL_INCOMING,
+	CALL_ESTABLISHED,
+	CALL_DROP,
 };
 
 struct call_s;
@@ -128,6 +134,8 @@ struct endpoint_s {
 struct call_s {
 	GList			list;
 
+	int			status;
+
 	int			bearertype;
 	char			anumber[NUMBER_MAX_SIZE];
 	char			bnumber[NUMBER_MAX_SIZE];
@@ -144,13 +152,20 @@ struct call_s {
 int gw_init(void );
 struct gateway_s *gw_lookup(char *);
 struct gateway_s *gw_lookup_or_create(char *);
-struct ds1_s *gw_ds1_get_or_create(struct gateway_s *gw, int slot, int ds1);
 void gw_set_status(struct gateway_s *gw, int status);
-void gw_ds1_set_status(struct gateway_s *gw, int slot, int span, int status);
-void gw_ds0_set_status(struct gateway_s *gw, int slot, int span, int chan, int status);
+
+void gw_slot_create(struct gateway_s *gw, int slot);
 void gw_slot_set_status(struct gateway_s *gw, int slot, int status);
+
+void gw_ds1_create(struct gateway_s *gw, int slot, int ds1);
+void gw_ds1_set_status(struct gateway_s *gw, int slot, int span, int status);
+struct ds1_s *gw_ds1_get(struct gateway_s *gw, int slot, int ds1);
+
+void gw_ds0_set_status(struct gateway_s *gw, int slot, int span, int chan, int status);
+
 int gw_mgcp_call_setup(struct endpoint_s *ep, int mgcpmsgid, char *anumber, char *bnumber, int bearer);
-void gw_mgcp_call_drop(struct endpoint_s *ep, int mgcpmsgid, int connid);
+void gw_mgcp_call_drop_req(struct endpoint_s *ep, int mgcpmsgid, int connid);
+void gw_mgcp_call_drop_ack(struct gateway_s *gw, int connid);
 
 void gw_slap_call_proceed(struct gateway_s *gw, int callid);
 void gw_slap_call_deny(struct gateway_s *gw, int callid);

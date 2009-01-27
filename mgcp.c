@@ -62,6 +62,11 @@ struct mgcppkt_s {
 	int			sent;
 	struct event		timer;
 	struct timeval		tv;
+
+	void			(*callback)(struct mgcppkt_s *pkt);
+	union {
+		int		connid;
+	} callbackarg;
 };
 
 struct sepstr_s {
@@ -131,6 +136,8 @@ static void mgcp_pkt_put(struct mgcppkt_s *pkt) {
 	g_string_erase(pkt->endpoint, 0, -1);
 	g_string_erase(pkt->body, 0, -1);
 	g_string_erase(pkt->resultstr, 0, -1);
+
+	pkt->callback=NULL;
 
 	pktfreelist=g_list_concat(&pkt->list, pktfreelist);
 }
@@ -583,7 +590,7 @@ static void mgcp_process_dlcx(struct sepstr_s *lines, int verb, int msgid, struc
 
 	connid=strtol(connidline->ptr+3, NULL, 16);
 
-	gw_mgcp_call_drop(ep, msgid, connid);
+	gw_mgcp_call_drop_req(ep, msgid, connid);
 }
 
 static void mgcp_send_response_with_connid(struct gateway_s *gw, int result, int msgid, char *resultstring, int connid) {
@@ -591,6 +598,14 @@ static void mgcp_send_response_with_connid(struct gateway_s *gw, int result, int
 	sprintf(connidstr, "I: %x", connid);
 
 	mgcp_send_response(gw, result, msgid, resultstring, connidstr);
+}
+
+void mgcp_call_drop_req_ack(struct mgcppkt_s *pkt) {
+
+	logwrite(LOG_DEBUG, "MGCP call drop gw %s callid %d acked",
+			pkt->gw->name, pkt->callbackarg.connid);
+
+	gw_mgcp_call_drop_ack(pkt->gw, pkt->callbackarg.connid);
 }
 
 void mgcp_call_drop_req(struct endpoint_s *ep, int connid) {
@@ -602,6 +617,11 @@ void mgcp_call_drop_req(struct endpoint_s *ep, int connid) {
 	pkt->gw=gw;
 	pkt->type=PKT_TYPE_COMMAND;
 	pkt->verb=MGCP_VERB_DLCX;
+
+	/* We want to know if the PGW acknowledged the call drop */
+	pkt->callback=mgcp_call_drop_req_ack;
+	pkt->callbackarg.connid=connid;
+
 	g_string_printf(pkt->endpoint, "S%d/ds1-%d/%d", ep->slot, ep->span, ep->chan);
 	g_string_printf(pkt->body, "I: %x\n", connid);
 
@@ -732,6 +752,9 @@ static void mgcp_respmsg_parse(struct sepstr_s *lines, int result, int msgid) {
 
 	mgcp_pkt_retranstimer_stop(pkt);
 	mgcp_pkt_deltimer_start(pkt);
+
+	if (pkt->callback)
+		pkt->callback(pkt);
 }
 
 static void mgcp_msg_process(struct sepstr_s *lines, int nolines, struct sockaddr_in *sin) {

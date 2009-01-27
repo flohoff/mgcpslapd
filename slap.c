@@ -300,8 +300,6 @@ void slap_msg_cc_finish(struct slapmsg_s *msg) {
 }
 
 
-
-
 static int slap_send_append_bytes(struct gateway_s *gw, uint8_t *buf, int skip, int len) {
 	int	heap=SLAP_BUFFER_SIZE-gw->slap.write.valid;
 
@@ -459,10 +457,12 @@ static void slap_sendhb_init(struct gateway_s *gw) {
  */
 static void slap_msg_recv_register(struct gateway_s *gw, ss7_v2_header_t *hdr) {
 	uint8_t		*msg=slap_msg_payloadptr(hdr);
-	uint32_t	slot=ntohl(hdr->location_id);
+	uint32_t	slot=ntohl(hdr->location_id)+1;
 	uint8_t		msglen=slap_msg_payload_len(hdr);
 	uint8_t		*end=msg+msglen;
 	uint8_t		span=0xff;
+
+	gw_slot_create(gw, slot);
 
 	while(msg < end) {
 		uint8_t	field=*msg++;
@@ -473,6 +473,7 @@ static void slap_msg_recv_register(struct gateway_s *gw, ss7_v2_header_t *hdr) {
 				uint8_t status=*(msg+1);
 				span=*msg;
 
+				gw_ds1_create(gw, slot, span);
 				gw_ds1_set_status(gw, slot, span, status);
 
 				logwrite(LOG_DEBUG, "REGISTER contained link status slot %d span %d status %d",
@@ -483,6 +484,8 @@ static void slap_msg_recv_register(struct gateway_s *gw, ss7_v2_header_t *hdr) {
 			case(SLAP_DS0_STATUS): {
 				uint8_t	chan;
 				span=*msg;
+
+				gw_ds1_create(gw, slot, span);
 
 				/* Check if we have non idle ds0s - This shouldnt happen
 				  and i am unshure on how to handle that - so for now
@@ -500,6 +503,8 @@ static void slap_msg_recv_register(struct gateway_s *gw, ss7_v2_header_t *hdr) {
 			case(SLAP_DS0_BLOCKING): {
 				uint8_t	ds0;
 				span=*msg;
+
+				gw_ds1_create(gw, slot, span);
 
 				for(ds0=0;ds0<flen-1;ds0++) {
 					uint8_t	ds0block=*(msg+1+ds0);
@@ -528,6 +533,9 @@ static void slap_msg_recv_event(struct gateway_s *gw, ss7_v2_header_t *hdr) {
 	uint8_t		*msg=slap_msg_payloadptr(hdr);
 	uint8_t		msglen=slap_msg_payload_len(hdr);
 	uint8_t		*end=msg+msglen;
+	uint32_t	slot=ntohl(hdr->location_id)+1;
+
+	gw_slot_create(gw, slot);
 
 	while(msg < end) {
 		uint8_t	field=*msg++;
@@ -538,9 +546,9 @@ static void slap_msg_recv_event(struct gateway_s *gw, ss7_v2_header_t *hdr) {
 				status_chg_t	*sc=(status_chg_t *) msg;
 
 				logwrite(LOG_DEBUG, "Status change: ESIG %08x SLOT: %d Status: %d",
-						ntohl(sc->esig), ntohl(sc->slot), ntohs(sc->status));
+						ntohl(sc->esig), slot, ntohs(sc->status));
 
-				gw_slot_set_status(gw, ntohl(sc->slot), ntohs(sc->status));
+				gw_slot_set_status(gw, slot, ntohs(sc->status));
 
 				/* FIXME
 				 *
@@ -557,10 +565,11 @@ static void slap_msg_recv_event(struct gateway_s *gw, ss7_v2_header_t *hdr) {
 				uint8_t	span=*msg;
 				uint8_t	status=*(msg+1);
 
-				gw_ds1_set_status(gw, ntohl(hdr->location_id), span, status);
+				gw_ds1_create(gw, slot, span);
+				gw_ds1_set_status(gw, slot, span, status);
 
 				logwrite(LOG_DEBUG, "Link change: gw %s slot: %d span: %d status: %d",
-					gw->name, ntohl(hdr->location_id), span, status);
+					gw->name, slot, span, status);
 
 			}
 			default:
@@ -582,13 +591,13 @@ static void slap_msg_recv_event(struct gateway_s *gw, ss7_v2_header_t *hdr) {
  */
 
 static void slap_msg_recv_cc_dreq(struct gateway_s *gw, int callid) {
-	logwrite(LOG_DEBUG, "SLAP received CALL CONTROL SLAP_COMS_DISC_REQ callid %d gw %s", callid, gw->name);
+	logwrite(LOG_DEBUG, "SLAP received CC SLAP_COMS_DISC_REQ callid %d gw %s", callid, gw->name);
 
 	gw_slap_call_drop_req(gw, callid);
 }
 
 static void slap_msg_recv_cc_cresp(struct gateway_s *gw, int callid) {
-	logwrite(LOG_DEBUG, "SLAP received CALL CONTROL SLAP_COMS_CLEAR_RESP callid %d gw %s", callid, gw->name);
+	logwrite(LOG_DEBUG, "SLAP received CC SLAP_COMS_CLEAR_RESP callid %d gw %s", callid, gw->name);
 
 	gw_slap_call_deny(gw, callid);
 }
@@ -596,7 +605,7 @@ static void slap_msg_recv_cc_cresp(struct gateway_s *gw, int callid) {
 static void slap_msg_recv_cc_clearreq(struct gateway_s *gw, ss7_v2_header_t *hdr, slap_cc_t *cc, int callid) {
 	struct slapmsg_s	msg;
 
-	logwrite(LOG_DEBUG, "SLAP received CALL CONTROL SLAP_COMS_CLEAR_REQ for callid %d gw %s", callid, gw->name);
+	logwrite(LOG_DEBUG, "SLAP received CC SLAP_COMS_CLEAR_REQ for callid %d gw %s", callid, gw->name);
 
 	/* We acknowledge the packet to the HARC */
 	slap_msg_create_cc(&msg, SLAP_COMS_CLEAR_CONF, ntohl(hdr->location_id)+1, cc->ds1_id, callid);
@@ -610,7 +619,7 @@ static void slap_msg_recv_cc_clearreq(struct gateway_s *gw, ss7_v2_header_t *hdr
 static void slap_msg_recv_cc_connreq(struct gateway_s *gw, ss7_v2_header_t *hdr, slap_cc_t *cc, int callid) {
 	struct slapmsg_s	msg;
 
-	logwrite(LOG_DEBUG, "SLAP received CALL CONTROL SLAP_COMS_CONNECT_REQ for callid %d gw %s", callid, gw->name);
+	logwrite(LOG_DEBUG, "SLAP received SLAP_COMS_CONNECT_REQ for callid %d gw %s", callid, gw->name);
 
 	/* This should trigger a "200 <msgid> MGCP 1.0" sent to the PGW */
 	gw_slap_call_proceed(gw, callid);

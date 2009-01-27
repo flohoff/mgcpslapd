@@ -39,22 +39,44 @@ static struct call_s *gw_call_get(void ) {
 	return first->data;
 }
 
+void gw_slot_create(struct gateway_s *gw, int slot) {
+	logwrite(LOG_DEBUG, "Createing slot on %s slot %d", gw->name, slot);
+}
 
-struct ds1_s *gw_ds1_get_or_create(struct gateway_s *gw, int slot, int ds1) {
+void gw_ds1_create(struct gateway_s *gw, int slot, int ds1) {
+	logwrite(LOG_DEBUG, "Createing ds1 on %s slot %d ds1 %d", gw->name, slot, ds1);
+
 	if (!gw->slot[slot].ds1[ds1])
 		gw->slot[slot].ds1[ds1]=calloc(1, sizeof(struct ds1_s));
+}
 
+struct ds1_s *gw_ds1_get(struct gateway_s *gw, int slot, int ds1) {
 	return gw->slot[slot].ds1[ds1];
 }
 
 struct ds0_s *gw_ds0_get(struct gateway_s *gw, int slot, int ds1no, int ds0no) {
-	struct ds1_s	*ds1=gw_ds1_get_or_create(gw, slot, ds1no);
+	struct ds1_s	*ds1=gw_ds1_get(gw, slot, ds1no);
+
+	if (!ds1)
+		return NULL;
 
 	return &ds1->ds0[ds0no];
 }
 
+void gw_ds0_set_status(struct gateway_s *gw, int slot, int span, int chan, int status) {
+	struct ds1_s *ds1=gw_ds1_get(gw, slot, span);
+
+	if (!ds1)
+		return;
+
+	ds1->ds0[chan].status=status;
+}
+
 void gw_ds1_set_status(struct gateway_s *gw, int slot, int span, int status) {
-	struct ds1_s *ds1=gw_ds1_get_or_create(gw, slot, span);
+	struct ds1_s *ds1=gw_ds1_get(gw, slot, span);
+
+	if (!ds1)
+		return;
 
 	if (ds1->status != DS1_STATUS_UP) {
 		if (status == DS1_STATUS_UP) {
@@ -67,11 +89,6 @@ void gw_ds1_set_status(struct gateway_s *gw, int slot, int span, int status) {
 	}
 
 	ds1->status=status;
-}
-
-void gw_ds0_set_status(struct gateway_s *gw, int slot, int span, int chan, int status) {
-	struct ds1_s *ds1=gw_ds1_get_or_create(gw, slot, span);
-	ds1->ds0[chan].status=status;
 }
 
 void gw_slot_set_status(struct gateway_s *gw, int slot, int status) {
@@ -96,7 +113,7 @@ void gw_set_status(struct gateway_s *gw, int status) {
 }
 
 int gw_ds0_idle(struct ds0_s *ds0) {
-	return (ds0->status == DS0_STATUS_IDLE);
+	return (ds0->status == DS0_IDLE);
 }
 
 /* Okay - this is tricky - we need a callid for SLAP and
@@ -116,7 +133,57 @@ int gw_callid_next(struct gateway_s *gw) {
 	return gw->callid;
 }
 
-void gw_mgcp_call_drop(struct endpoint_s *ep, int mgcpmsgid, int connid) {
+void gw_slap_call_drop_req(struct gateway_s *gw, int callid) {
+	struct call_s	*call;
+
+	logwrite(LOG_ERROR, "Call drop from SLAP - callid %d gw %s", callid, gw->name);
+
+	call=g_hash_table_lookup(gw->calltable, &callid);
+
+	if (!call) {
+		logwrite(LOG_ERROR, "Unknown callid in deny from SLAP - callid %d gw %s", callid, gw->name);
+		return;
+	}
+
+	call->status=CALL_DROP;
+
+	mgcp_call_drop_req(&call->ep, callid);
+}
+
+void gw_slap_call_drop_ack(struct gateway_s *gw, int callid) {
+	struct call_s	*call;
+
+	logwrite(LOG_DEBUG, "Call drop ack from SLAP - callid %d gw %s", callid, gw->name);
+
+	call=g_hash_table_lookup(gw->calltable, &callid);
+
+	if (!call) {
+		logwrite(LOG_ERROR, "Unknown callid in dropack from SLAP - callid %d gw %s", callid, gw->name);
+		return;
+	}
+
+	mgcp_call_drop_ack(&call->ep, call->mgcpmsgid, callid);
+
+	call->status=CALL_IDLE;
+	call->ds0->status=DS0_IDLE;
+}
+
+void gw_mgcp_call_drop_ack(struct gateway_s *gw, int connid) {
+	struct call_s	*call;
+
+	call=g_hash_table_lookup(gw->calltable, &connid);
+
+	if (!call) {
+		logwrite(LOG_ERROR, "Could not find ConnectionID %x from %s",
+				connid, gw->name);
+		return;
+	}
+
+	call->status=CALL_IDLE;
+	call->ds0->status=DS0_IDLE;
+}
+
+void gw_mgcp_call_drop_req(struct endpoint_s *ep, int mgcpmsgid, int connid) {
 	struct call_s	*call;
 
 	call=g_hash_table_lookup(ep->gw->calltable, &connid);
@@ -128,7 +195,26 @@ void gw_mgcp_call_drop(struct endpoint_s *ep, int mgcpmsgid, int connid) {
 
 	call->mgcpmsgid=mgcpmsgid;
 
+	call->status=CALL_DROP;
+
 	slap_call_drop(call->ep.gw, call->ep.slot, call->ep.span, call->ep.chan, call->callid);
+}
+
+void gw_slap_call_proceed(struct gateway_s *gw, int callid) {
+	struct call_s	*call;
+
+	logwrite(LOG_DEBUG, "Call proceed from SLAP - callid %d gw %s", callid, gw->name);
+
+	call=g_hash_table_lookup(gw->calltable, &callid);
+
+	if (!call) {
+		logwrite(LOG_ERROR, "Unknown callid in proceed from SLAP - callid %d gw %s", callid, gw->name);
+		return;
+	}
+
+	call->status=CALL_ESTABLISHED;
+
+	mgcp_call_proceed(&call->ep, call->mgcpmsgid, callid);
 }
 
 int gw_mgcp_call_setup(struct endpoint_s *ep, int mgcpmsgid,
@@ -141,8 +227,12 @@ int gw_mgcp_call_setup(struct endpoint_s *ep, int mgcpmsgid,
 		return 0;
 	}
 #endif
-	ds0->status=DS0_STATUS_INCOMING;
+
+	call->ds0=ds0;
 	ds0->call=call;
+
+	call->status=CALL_INCOMING;
+	ds0->status=DS0_BUSY;
 
 	memcpy(&call->ep, ep, sizeof(struct endpoint_s));
 	strncpy(call->anumber, anumber, NUMBER_MAX_SIZE);
@@ -162,21 +252,6 @@ int gw_mgcp_call_setup(struct endpoint_s *ep, int mgcpmsgid,
 	return call->callid;
 }
 
-void gw_slap_call_drop_req(struct gateway_s *gw, int callid) {
-	struct call_s	*call;
-
-	logwrite(LOG_ERROR, "Call drop from SLAP - callid %d gw %s", callid, gw->name);
-
-	call=g_hash_table_lookup(gw->calltable, &callid);
-
-	if (!call) {
-		logwrite(LOG_ERROR, "Unknown callid in deny from SLAP - callid %d gw %s", callid, gw->name);
-		return;
-	}
-
-	mgcp_call_drop_req(&call->ep, callid);
-}
-
 void gw_slap_call_deny(struct gateway_s *gw, int callid) {
 	struct call_s	*call;
 
@@ -190,38 +265,11 @@ void gw_slap_call_deny(struct gateway_s *gw, int callid) {
 	}
 
 	mgcp_call_deny(&call->ep, call->mgcpmsgid, callid);
+
+	call->status=CALL_IDLE;
+	call->ds0->status=DS0_IDLE;
 }
 
-void gw_slap_call_drop_ack(struct gateway_s *gw, int callid) {
-	struct call_s	*call;
-
-	logwrite(LOG_DEBUG, "Call drop ack from SLAP - callid %d gw %s", callid, gw->name);
-
-	call=g_hash_table_lookup(gw->calltable, &callid);
-
-	if (!call) {
-		logwrite(LOG_ERROR, "Unknown callid in dropack from SLAP - callid %d gw %s", callid, gw->name);
-		return;
-	}
-
-	mgcp_call_drop_ack(&call->ep, call->mgcpmsgid, callid);
-}
-
-
-void gw_slap_call_proceed(struct gateway_s *gw, int callid) {
-	struct call_s	*call;
-
-	logwrite(LOG_DEBUG, "Call proceed from SLAP - callid %d gw %s", callid, gw->name);
-
-	call=g_hash_table_lookup(gw->calltable, &callid);
-
-	if (!call) {
-		logwrite(LOG_ERROR, "Unknown callid in proceed from SLAP - callid %d gw %s", callid, gw->name);
-		return;
-	}
-
-	mgcp_call_proceed(&call->ep, call->mgcpmsgid, callid);
-}
 
 struct gateway_s *gw_lookup(char *name) {
 	return g_hash_table_lookup(gwtable, name);
