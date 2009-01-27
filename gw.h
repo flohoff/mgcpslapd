@@ -21,6 +21,8 @@
 
 #define NUMBER_MAX_SIZE		20
 
+#define CALL_TIMER_DEL		30
+
 enum {
 	DS1_STATUS_UNKNOWN = 0,
 	DS1_STATUS_UP = 1,
@@ -147,6 +149,7 @@ struct call_s {
 	struct ds0_s		*ds0;
 
 	struct event		timer;
+	struct timeval		tv;
 };
 
 int gw_init(void );

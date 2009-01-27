@@ -133,6 +133,26 @@ int gw_callid_next(struct gateway_s *gw) {
 	return gw->callid;
 }
 
+static void gw_call_delete(int fd, short event, void *arg) {
+	struct call_s	*call=arg;
+
+	if (call->status != CALL_IDLE) {
+		logwrite(LOG_ERROR, "Call delete called with non idle CALL gateway %s callid %d",
+			call->ep.gw->name, call->callid);
+	}
+
+	g_hash_table_remove(call->ep.gw->calltable, &call->callid);
+	gw_call_put(call);
+}
+
+void gw_call_deltimer_start(struct call_s *call) {
+	call->tv.tv_sec=CALL_TIMER_DEL;
+	call->tv.tv_usec=0;
+
+	evtimer_set(&call->timer, &gw_call_delete, call);
+	evtimer_add(&call->timer, &call->tv);
+}
+
 void gw_slap_call_drop_req(struct gateway_s *gw, int callid) {
 	struct call_s	*call;
 
@@ -166,6 +186,8 @@ void gw_slap_call_drop_ack(struct gateway_s *gw, int callid) {
 
 	call->status=CALL_IDLE;
 	call->ds0->status=DS0_IDLE;
+
+	gw_call_deltimer_start(call);
 }
 
 void gw_mgcp_call_drop_ack(struct gateway_s *gw, int connid) {
@@ -181,6 +203,8 @@ void gw_mgcp_call_drop_ack(struct gateway_s *gw, int connid) {
 
 	call->status=CALL_IDLE;
 	call->ds0->status=DS0_IDLE;
+
+	gw_call_deltimer_start(call);
 }
 
 void gw_mgcp_call_drop_req(struct endpoint_s *ep, int mgcpmsgid, int connid) {
@@ -286,6 +310,8 @@ void gw_slap_call_deny(struct gateway_s *gw, int callid) {
 
 	call->status=CALL_IDLE;
 	call->ds0->status=DS0_IDLE;
+
+	gw_call_deltimer_start(call);
 }
 
 
