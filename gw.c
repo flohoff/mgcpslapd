@@ -128,10 +128,18 @@ int gw_ds0_idle(struct ds0_s *ds0) {
 
  */
 int gw_callid_next(struct gateway_s *gw) {
-	gw->callid++;
-	gw->callid&=0x7fff;
-	if (gw->callid == 0)
+	/* Loop until we find a non used call id ...
+	   most likely the next */
+
+	while(42) {
 		gw->callid++;
+		gw->callid&=0x7fff;
+		if (gw->callid == 0)
+			gw->callid++;
+
+		if (!g_hash_table_lookup(gw->calltable, &gw->callid))
+			break;
+	}
 
 	/* FIXME: Check for existing callid */
 	return gw->callid;
