@@ -337,7 +337,7 @@ static void mgcp_pkt_send(struct mgcppkt_s *pkt) {
 
 	mgcp_pkt_send_pure(pkt);
 
-	logwrite(LOG_ERROR, "MGCP - adding msgid %d", pkt->msgid);
+	logwrite(LOG_DEBUG, "MGCP - adding msgid %d", pkt->msgid);
 	g_hash_table_insert(sendpkttable, &pkt->msgid, pkt);
 
 	/*
