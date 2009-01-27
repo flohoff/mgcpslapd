@@ -259,6 +259,8 @@ void gw_mgcp_call_drop_ack(struct gateway_s *gw, int connid) {
 		return;
 	}
 
+	slap_call_drop_ack(gw, call->ep.slot, call->ep.span, call->ep.chan, connid);
+
 	call->status=CALL_IDLE;
 	call->ds0->status=DS0_IDLE;
 
@@ -298,7 +300,7 @@ void gw_mgcp_call_drop_req(struct endpoint_s *ep, int mgcpmsgid, int connid) {
 
 	call->status=CALL_DROP_WAIT_SLAP;
 
-	slap_call_drop(call->ep.gw, call->ep.slot, call->ep.span, call->ep.chan, call->callid);
+	slap_call_drop_req(call->ep.gw, call->ep.slot, call->ep.span, call->ep.chan, call->callid);
 
 	gw_call_droptimer_start(call);
 }

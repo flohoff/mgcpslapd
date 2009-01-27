@@ -632,6 +632,18 @@ static void slap_msg_recv_event(struct gateway_s *gw, ss7_v2_header_t *hdr) {
    2009-01-21 14:01:56.190 SLAPIN  00 00 00 00 00 00 00 00 00 7a 01 1f               .........z..    
  */
 
+void slap_call_drop_ack(struct gateway_s *gw, int slot, int span, int chan, int callid) {
+	struct slapmsg_s	msg;
+
+	/* We acknowledge the packet to the HARC */
+	slap_msg_create_cc(&msg, SLAP_COMS_CLEAR_CONF, slot-1, span, callid);
+	slap_msg_cc_finish(&msg);
+
+	slap_send(gw, &msg);
+
+	slap_sendhb_extend(gw);
+}
+
 static void slap_msg_recv_cc_dreq(struct gateway_s *gw, int callid) {
 	logwrite(LOG_DEBUG, "SLAP received CC SLAP_COMS_DISC_REQ callid %d gw %s", callid, gw->name);
 
@@ -761,7 +773,7 @@ static void slap_read(struct gateway_s *gw, int fd) {
 		slap_msg_process(gw);
 }
 
-void slap_call_drop(struct gateway_s *gw, int slot, int span, int chan, int callid) {
+void slap_call_drop_req(struct gateway_s *gw, int slot, int span, int chan, int callid) {
 	struct slapmsg_s	slapmsg;
 
 	slap_msg_create_cc(&slapmsg, SLAP_COMS_DISC_IND, slot, span, callid);
